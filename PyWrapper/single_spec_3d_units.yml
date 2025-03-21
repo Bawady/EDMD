@@ -1,0 +1,16 @@
+description: Simple setup of a single species in 3D
+
+setup:
+  seed: 13
+  dimensions: 3
+  size: 150 bohr
+  max_speed: 4500 m/s
+  dump_interval: 3 fs
+  max_sim_time: 1 ps
+
+species:
+  - name: A
+    mass: 1.0 u
+    radius: 4 bohr
+    color: 0xFF0000
+    quantity: 1000

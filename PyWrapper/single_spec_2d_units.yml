@@ -1,0 +1,19 @@
+description: Physical unit-afflicted setup of a single species in 2D
+
+setup:
+  dimensions: 2
+  size: 2000 bohr
+  dt: 0.005 ps
+  max_speed: 1500 m/s
+  default_bins: 40
+  dump_steps: 10
+  convergence_buffer_len: 20
+  convergence_eps: 0.001
+  max_steps: 2000
+
+species:
+  - name: Neon
+    mass: 1 u
+    radius: 4 bohr
+    color: 0xFF0000
+    quantity: 1000
