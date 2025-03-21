@@ -1,19 +1,16 @@
-description: Physical unit-afflicted setup of a single species in 2D
+description: Simple setup of a single species in 3D
 
 setup:
+  seed: 13
   dimensions: 2
   size: 2000 bohr
-  dt: 0.005 ps
-  max_speed: 1500 m/s
-  default_bins: 40
-  dump_steps: 10
-  convergence_buffer_len: 20
-  convergence_eps: 0.001
-  max_steps: 2000
+  max_speed: 4500 m/s
+  dump_interval: 3 fs
+  max_sim_time: 1 ps
 
 species:
-  - name: Neon
-    mass: 1 u
+  - name: A
+    mass: 1.0 u
     radius: 4 bohr
     color: 0xFF0000
     quantity: 1000

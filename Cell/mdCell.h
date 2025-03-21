@@ -15,20 +15,98 @@ typedef struct sevent
     int queue;    //Index of the event queue this event is in
 } event;
 
+typedef struct {
+  double x, y;
+#ifdef DIM_3D
+  double z;
+#endif
+} f_vector;
+
+typedef struct {
+  int x, y;
+#ifdef DIM_3D
+  int z;
+#endif
+} i_vector;
+
+static inline void v_plus(f_vector *v1, const f_vector *v2) {
+    v1->x += v2->x;
+    v1->y += v2->y;
+#ifdef DIM_3D
+    v1->z += v2->z;
+#endif
+}
+
+static inline void v_minus(f_vector *v1, const f_vector *v2) {
+    v1->x -= v2->x;
+    v1->y -= v2->y;
+#ifdef DIM_3D
+    v1->z -= v2->z;
+#endif
+}
+
+static inline void v_scalar_product(f_vector *v, double s) {
+    v->x *= s;
+    v->y *= s;
+#ifdef DIM_3D
+    v->z *= s;
+#endif
+}
+
+static inline f_vector v_subtraction(const f_vector *v1, const f_vector *v2) {
+    f_vector result;
+    result.x = v1->x - v2->x;
+    result.y = v1->y - v2->y;
+#ifdef DIM_3D
+    result.z = v1->z - v2->z;
+#endif
+    return result;
+}
+
+static inline f_vector v_multiplication(const f_vector *v1, const f_vector *v2) {
+    f_vector result;
+    result.x = v1->x * v2->x;
+    result.y = v1->y * v2->y;
+#ifdef DIM_3D
+    result.z = v1->z * v2->z;
+#endif
+    return result;
+}
+
+static inline f_vector v_times_scalar(const f_vector *v, double s) {
+    f_vector result;
+    result.x = s * v->x;
+    result.y = s * v->y;
+#ifdef DIM_3D
+    result.z = s * v->z;
+#endif
+    return result;
+}
+
+static inline double v_dot(const f_vector *v1, const f_vector *v2) {
+    double result;
+    result = v1->x * v2->x;
+    result += v1->y * v2->y;
+#ifdef DIM_3D
+    result += v1->z * v2->z;
+#endif
+    return result;
+}
+
 //Particle structure
 typedef struct sparticle
 {
-  double x, y, z;     //Position
-  double vx, vy, vz;  //Velocity
-  double t;           //Last update time
+  f_vector pos;
+  f_vector vel;
+  double t;                       // Last update time
   double radius;
   double mass;
-  uint8_t nearboxedge;      //Is this particle in a cell near the box edge?
-  int cellx, celly, cellz;  //Current cell
-  int boxestraveledx, boxestraveledy, boxestraveledz; //Keeps track of dynamics across periodic boundaries
-  event* cellcrossing;    //Cell crossing event
-  struct sparticle* prev, *next;  //Doubly linked cell list
-  uint8_t type; //Particle type
+  uint8_t nearboxedge;            // Is this particle in a cell near the box edge?
+  i_vector cell;                  // Current cell
+  i_vector boxes_traveled;        // Keeps track of dynamics across periodic boundaries
+  event* cellcrossing;            // Cell crossing event
+  struct sparticle* prev, *next;  // Doubly linked cell list
+  uint8_t type;                   // Particle type
 } particle;
 
 int main(int, char**);

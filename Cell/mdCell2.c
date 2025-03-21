@@ -46,7 +46,7 @@ char output_filename[MAX_FILENAME_LENGTH + 1] = "particles.csv"; // Location for
 // Ideally, we set maxscheduletime large enough that the average overflow list size is negligible (i.e. <10 events)
 // Also, there is some optimum value for the number of events per block (scales approximately linearly with "eventlisttime").
 // I seem to get good results with an eventlisttime chosen such that there are a few hundred events per block, and dependence is pretty weak (similar performance in the range of e.g. 5 to 500 events per block...)
-
+//
 double maxscheduletime = 1.0;
 int numeventlists;
 double eventlisttimemultiplier = 1; // event list time will be this / N
@@ -64,11 +64,7 @@ int listcounter1 = 0, listcounter2 = 0, mergecounter = 0;
 event **eventlists; // Last one is overflow list
 
 particle *particles;
-#ifdef DIM_3D
 particle *celllist[MAXCEL][MAXCEL][MAXCEL];
-#else
-particle *celllist[MAXCEL][MAXCEL];
-#endif
 event *eventlist;
 event *root;
 event **eventpool;
@@ -163,22 +159,13 @@ void printstuff() {
 
 	for (i = 0; i < N; i++) {
 		p = particles + i;
-		v2tot += p->mass * v_dot(&p->vel, &p->vel);
-#ifdef DIM_3D
+		// 3D
+		v2tot += p->mass * (p->vx * p->vx + p->vy * p->vy + p->vz * p->vz);
 		vfilled += p->radius * p->radius * p->radius * 8;
-#else
-		vfilled += p->radius * p->radius;
-#endif
 	}
-
-#ifdef DIM_3D
 	vfilled *= M_PI / 6.0;
-	double volume = xsize * ysize * zsize;
-#else
-	vfilled *= M_PI;
-	double volume = xsize * ysize;
-#endif
 	fprintf(stdout, "Average kinetic energy: %lf\n", 0.5 * v2tot / N);
+	double volume = xsize * ysize * zsize;
 	double dens = N / volume;
 	double press = -dvtot / (3.0 * volume * simtime);
 	double pressid = dens;
@@ -206,13 +193,9 @@ void init() {
 	initeventpool();
 	for (i = 0; i < N; i++) {
 		particle *p = particles + i;
-
-		p->boxes_traveled.x = 0;
-		p->boxes_traveled.y = 0;
-#ifdef DIM_3D
-		p->boxes_traveled.z = 0;
-#endif
-
+		p->boxestraveledx = 0;
+		p->boxestraveledy = 0;
+		p->boxestraveledz = 0;
 		p->t = 0;
 	}
 	initcelllist();
@@ -297,17 +280,9 @@ void loadparticles() {
 		p = &(particles[i]);
 		mygetline(buffer, file);
 		// 3D
-#ifdef DIM_3D
-		ftmp = sscanf(buffer, "%c %lf %lf %lf %lf %lf %lf %lf\n", &tmp, &(p->pos.x), &(p->pos.y), &(p->pos.z), &(p->vel.x), &(p->vel.y), &(p->vel.z), &(p->radius));
-#else
-		ftmp = sscanf(buffer, "%c %lf %lf %lf %lf %lf\n", &tmp, &(p->pos.x), &(p->pos.y), &(p->vel.x), &(p->vel.y), &(p->radius));
-#endif
+		ftmp = sscanf(buffer, "%c %lf %lf %lf %lf %lf %lf %lf\n", &tmp, &(p->x), &(p->y), &(p->z), &(p->vx), &(p->vy), &(p->vz), &(p->radius));
 		backinbox(p);
-#ifdef DIM_3D
 		if (ftmp != 8) {
-#else
-		if (ftmp != 6) {
-#endif
 			fprintf(stdout, "Read error (particle) %d \n String: %s\n", ftmp, buffer);
 			exit(EXIT_FAILURE);
 		}
@@ -327,45 +302,45 @@ void loadparticles() {
  ** Center-of-mass velocity = 0
  ** Kinetic energy per particle = 3kT/2
  **************************************************/
-//void randommovement() {
-//	particle *p;
-//	double v2tot = 0, vxtot = 0, vytot = 0, vztot = 0;
-//	double mtot = 0;
-//	int i;
-//
-//	fprintf(stdout, "Assigning random velocities to all particles\n");
-//
-//	for (i = 0; i < N; i++) {
-//		p = particles + i;
-//		double imsq = 1.0 / sqrt(p->mass);
-//
-//		p->vel.x = imsq * random_gaussian();
-//		p->vel.y = imsq * random_gaussian();
-//		p->vel.z = imsq * random_gaussian();
-//		vxtot += p->mass * p->vel.x; // Keep track of total v
-//		vytot += p->mass * p->vel.y;
-//		vztot += p->mass * p->vel.z;
-//		mtot += p->mass;
-//	}
-//
-//	vxtot /= mtot;
-//	vytot /= mtot;
-//	vztot /= mtot;
-//	for (i = 0; i < N; i++) {
-//		p = &(particles[i]);
-//		p->vx -= vxtot; // Make sure v_cm = 0
-//		p->vy -= vytot;
-//		p->vz -= vztot;
-//		v2tot += p->mass * (p->vx * p->vx + p->vy * p->vy + p->vz * p->vz);
-//	}
-//	double fac = sqrt(3.0 / (v2tot / N));
-//	for (i = 0; i < N; i++) {
-//		p = &(particles[i]);
-//		p->vx *= fac; // Fix energy
-//		p->vy *= fac;
-//		p->vz *= fac;
-//	}
-//}
+void randommovement() {
+	particle *p;
+	double v2tot = 0, vxtot = 0, vytot = 0, vztot = 0;
+	double mtot = 0;
+	int i;
+
+	fprintf(stdout, "Assigning random velocities to all particles\n");
+
+	for (i = 0; i < N; i++) {
+		p = particles + i;
+		double imsq = 1.0 / sqrt(p->mass);
+
+		p->vx = imsq * random_gaussian();
+		p->vy = imsq * random_gaussian();
+		p->vz = imsq * random_gaussian();
+		vxtot += p->mass * p->vx; // Keep track of total v
+		vytot += p->mass * p->vy;
+		vztot += p->mass * p->vz;
+		mtot += p->mass;
+	}
+
+	vxtot /= mtot;
+	vytot /= mtot;
+	vztot /= mtot;
+	for (i = 0; i < N; i++) {
+		p = &(particles[i]);
+		p->vx -= vxtot; // Make sure v_cm = 0
+		p->vy -= vytot;
+		p->vz -= vztot;
+		v2tot += p->mass * (p->vx * p->vx + p->vy * p->vy + p->vz * p->vz);
+	}
+	double fac = sqrt(3.0 / (v2tot / N));
+	for (i = 0; i < N; i++) {
+		p = &(particles[i]);
+		p->vx *= fac; // Fix energy
+		p->vy *= fac;
+		p->vz *= fac;
+	}
+}
 
 /**************************************************
  **                UPDATE
@@ -375,8 +350,9 @@ void update(particle *p1) {
 	// 3D
 	double dt = simtime - p1->t;
 	p1->t = simtime;
-	f_vector tmp = v_times_scalar(&p1->vel, dt);
-	v_plus(&p1->pos, &tmp);
+	p1->x += dt * p1->vx;
+	p1->y += dt * p1->vy;
+	p1->z += dt * p1->vz;
 }
 
 /**************************************************
@@ -392,7 +368,6 @@ void initcelllist() {
 	cx = (int)(xsize - 0.0001); // Set number of cells
 	cy = (int)(ysize - 0.0001);
 	cz = (int)(zsize - 0.0001);
-//	cz = 1;
 
 	while (cx * cy * cz > 8 * N) {
 		cx *= 0.9;
@@ -421,13 +396,9 @@ void initcelllist() {
 	czsize = zsize / cz;
 	for (i = 0; i < cx; i++) // Clear celllist
 		for (j = 0; j < cy; j++)
-#ifdef DIM_3D
 			for (k = 0; k < cz; k++) {
 				celllist[i][j][k] = NULL;
 			}
-#else
-			celllist[i][j] = NULL;
-#endif
 	for (i = 0; i < N; i++)
 		addtocelllist(particles + i);
 }
@@ -439,29 +410,15 @@ void initcelllist() {
  ** linked list.
  **************************************************/
 void addtocelllist(particle *p) {
-	p->cell.x = p->pos.x / cxsize; // Find particle's cell
-	p->cell.y = p->pos.y / cysize;
-#ifdef DIM_3D
-	p->cell.z = p->pos.z / czsize;
-#endif
-
-	// Add particle to celllist
-#ifdef DIM_3D
-	p->next = celllist[p->cell.x][p->cell.y][p->cell.z];
-#else
-	p->next = celllist[p->cell.x][p->cell.y]; // Add particle to celllist
-#endif
-
+	p->cellx = p->x / cxsize; // Find particle's cell
+	p->celly = p->y / cysize;
+	p->cellz = p->z / czsize;
+	p->next = celllist[p->cellx][p->celly][p->cellz]; // Add particle to celllist
 	if (p->next)
 		p->next->prev = p; // Link up list
+	celllist[p->cellx][p->celly][p->cellz] = p;
 	p->prev = NULL;
-	p->nearboxedge = (p->cell.x == 0 || p->cell.y == 0 || p->cell.x == cx - 1 || p->cell.y == cy - 1);
-#ifdef DIM_3D
-	p->nearboxedge |= (p->cell.z == 0 ||  p->cell.z == cz - 1);
-	celllist[p->cell.x][p->cell.y][p->cell.z] = p;
-#else
-	celllist[p->cell.x][p->cell.y] = p;
-#endif
+	p->nearboxedge = (p->cellx == 0 || p->celly == 0 || p->cellz == 0 || p->cellx == cx - 1 || p->celly == cy - 1 || p->cellz == cz - 1);
 }
 
 /**************************************************
@@ -471,11 +428,7 @@ void removefromcelllist(particle *p1) {
 	if (p1->prev)
 		p1->prev->next = p1->next; // Remove particle from celllist
 	else
-#ifdef DIM_3D
-		celllist[p1->cell.x][p1->cell.y][p1->cell.z] = p1->next;
-#else
-		celllist[p1->cell.x][p1->cell.y] = p1->next;
-#endif
+		celllist[p1->cellx][p1->celly][p1->cellz] = p1->next;
 	if (p1->next)
 		p1->next->prev = p1->prev;
 }
@@ -518,41 +471,39 @@ void step() {
  **************************************************/
 void findcollision(particle *p1, particle *p2) {
 	double dt2 = simtime - p2->t;
-	// relative distance at current time
-	f_vector tmp = v_times_scalar(&p2->vel, dt2);
-  tmp = v_subtraction(&p2->pos, &tmp);
-	f_vector dr = v_subtraction(&p1->pos, &tmp);
-
+	double dx = p1->x - p2->x - dt2 * p2->vx; // relative distance at current time
+	double dy = p1->y - p2->y - dt2 * p2->vy;
+	double dz = p1->z - p2->z - dt2 * p2->vz;
 	if (p1->nearboxedge) {
-		if (dr.x > hx)
-			dr.x -= xsize;
-		else if (dr.x < -hx)
-			dr.x += xsize; // periodic boundaries
-		if (dr.y > hy)
-			dr.y -= ysize;
-		else if (dr.y < -hy)
-			dr.y += ysize;
-#ifdef DIM_3D
-		if (dr.z > hz)
-			dr.z -= zsize;
-		else if (dr.z < -hz)
-			dr.z += zsize;
-#endif
+		if (dx > hx)
+			dx -= xsize;
+		else if (dx < -hx)
+			dx += xsize; // periodic boundaries
+		if (dy > hy)
+			dy -= ysize;
+		else if (dy < -hy)
+			dy += ysize;
+		if (dz > hz)
+			dz -= zsize;
+		else if (dz < -hz)
+			dz += zsize;
 	}
+	double dvx = p1->vx - p2->vx; // relative velocity
+	double dvy = p1->vy - p2->vy;
+	double dvz = p1->vz - p2->vz;
 
-	f_vector dvel = v_subtraction(&p1->vel, &p2->vel); // relative velocity
-	double b = v_dot(&dr, &dvel);
+	double b = dx * dvx + dy * dvy + dz * dvz; // dr.dv
 	if (b > 0)
 		return;
 
-	double dvel2 = v_dot(&dvel, &dvel);
-	double dr2 = v_dot(&dr, &dr);
+	double dv2 = dvx * dvx + dvy * dvy + dvz * dvz;
+	double dr2 = dx * dx + dy * dy + dz * dz;
 	double md = p1->radius + p2->radius;
 
-	double disc = b * b - dvel2 * (dr2 - md * md);
+	double disc = b * b - dv2 * (dr2 - md * md);
 	if (disc < 0)
 		return;
-	double t = simtime + (-b - sqrt(disc)) / dvel2;
+	double t = simtime + (-b - sqrt(disc)) / dv2;
 	createevent(t, p1, p2, 0);
 }
 
@@ -563,26 +514,27 @@ void findcollision(particle *p1, particle *p2) {
  **************************************************/
 void findcollisions(particle *p1, particle *notthis) // All collisions of particle p1
 {
-	int dx, dy, dz, ccx, ccy, ccz;
-	i_vector cell = p1->cell;
+	int dx, dy, dz, cellx, celly, cellz, ccx, ccy, ccz;
+	cellx = p1->cellx;
+	celly = p1->celly;
+	cellz = p1->cellz;
 	particle *p2;
 
 	for (dx = -1; dx < 2; dx++) {
-		ccx = cell.x + dx;
+		ccx = cellx + dx;
 		if (dx < 0 && ccx < 0)
 			ccx += cx;
 		else if (dx > 0 && ccx >= cx)
 			ccx -= cx;
 		{
 			for (dy = -1; dy < 2; dy++) {
-				ccy = cell.y + dy;
+				ccy = celly + dy;
 				if (dy < 0 && ccy < 0)
 					ccy += cy;
 				else if (dy > 0 && ccy >= cy)
 					ccy -= cy;
-#ifdef DIM_3D
 				for (dz = -1; dz < 2; dz++) {
-					ccz = cell.z + dz;
+					ccz = cellz + dz;
 					if (dz < 0 && ccz < 0)
 						ccz += cz;
 					else if (dz > 0 && ccz >= cz)
@@ -591,12 +543,6 @@ void findcollisions(particle *p1, particle *notthis) // All collisions of partic
 						if (p2 != p1 && p2 != notthis)
 							findcollision(p1, p2);
 				}
-#else
-					for (p2 = celllist[ccx][ccy]; p2; p2 = p2->next){
-						if (p2 != p1 && p2 != notthis)
-							findcollision(p1, p2);
-					}
-#endif
 			}
 		}
 	}
@@ -612,29 +558,21 @@ void findallcollisions() // All collisions of all particle pairs
 	particle *p1, *p2;
 
 	for (i = 0; i < N; i++) {
-		cellx = particles[i].cell.x + cx;
-		celly = particles[i].cell.y + cy;
-#ifdef DIM_3D
-		cellz = particles[i].cell.z + cz;
-#endif
+		cellx = particles[i].cellx + cx;
+		celly = particles[i].celly + cy;
+		cellz = particles[i].cellz + cz;
 		p1 = &(particles[i]);
 
 		for (dx = cellx - 1; dx < cellx + 2; dx++)
 			for (dy = celly - 1; dy < celly + 2; dy++)
-#ifdef DIM_3D
 				for (dz = cellz - 1; dz < cellz + 2; dz++) {
 					p2 = celllist[dx % cx][dy % cy][dz % cz];
-#else
-					p2 = celllist[dx % cx][dy % cy];
-#endif
 					while (p2) {
 						if (p2 > p1)
 							findcollision(p1, p2);
 						p2 = p2->next;
 					}
-#ifdef DIM_3D
 				}
-#endif
 	}
 }
 
@@ -647,39 +585,37 @@ void findallcollisions() // All collisions of all particle pairs
  ** as one of the pair is processed.
  **************************************************/
 void findcollisioncell(particle *p1, int type) {
-	int dx, dy, dz, ccx, ccy, ccz;
-	i_vector cell = p1->cell;
+	int dx, dy, dz, cellx, celly, cellz, ccx, ccy, ccz;
+	cellx = p1->cellx;
+	celly = p1->celly;
+	cellz = p1->cellz;
 	particle *p2;
 
-	int xmin = cell.x - 1;
-	int xmax = cell.x + 1;
-	int ymin = cell.y - 1;
-	int ymax = cell.y + 1;
-#ifdef DIM_3D
-	int zmin = cell.z - 1;
-	int zmax = cell.z + 1;
-#endif
+	int xmin = cellx - 1;
+	int ymin = celly - 1;
+	int zmin = cellz - 1;
+	int xmax = cellx + 1;
+	int ymax = celly + 1;
+	int zmax = cellz + 1;
 	switch (type) {
+	case -3: // Negative z-direction
+		zmax = zmin;
+		break;
+	case -2: // Negative y-direction
+		ymax = ymin;
+		break;
 	case -1: // Negative x-direction
 		xmax = xmin;
 		break;
 	case 1: // Positive x-direction
 		xmin = xmax;
 		break;
-	case -2: // Negative y-direction
-		ymax = ymin;
-		break;
 	case 2: // Positive y-direction
 		ymin = ymax;
-		break;
-#ifdef DIM_3D
-	case -3: // Negative z-direction
-		zmax = zmin;
 		break;
 	case 3: // Positive z-direction
 		zmin = zmax;
 		break;
-#endif
 	}
 
 	for (dx = xmin; dx <= xmax; dx++) {
@@ -696,7 +632,6 @@ void findcollisioncell(particle *p1, int type) {
 				ccy = dy - cy;
 			else
 				ccy = dy;
-#ifdef DIM_3D
 			for (dz = zmin; dz <= zmax; dz++) {
 				if (dz < 0)
 					ccz = dz + cz;
@@ -705,17 +640,12 @@ void findcollisioncell(particle *p1, int type) {
 				else
 					ccz = dz;
 				p2 = celllist[ccx][ccy][ccz];
-#else
-				p2 = celllist[ccx][ccy];
-#endif
 				while (p2) {
 					if (p2 != p1)
 						findcollision(p1, p2);
 					p2 = p2->next;
 				}
-#ifdef DIM_3D
 			}
-#endif
 		}
 	}
 }
@@ -736,36 +666,41 @@ void collision(event *ev) {
 
 	double r = r1 + r2;
 	double rinv = 1.0 / r;
-	f_vector dr = v_subtraction(&p1->pos, &p2->pos);
-
+	double dx = (p1->x - p2->x); // Normalized distance vector
+	double dy = (p1->y - p2->y);
+	double dz = (p1->z - p2->z);
 	if (p1->nearboxedge) {
-		if (dr.x > hx)
-			dr.x -= xsize;
-		else if (dr.x < -hx)
-			dr.x += xsize; // periodic boundaries
-		if (dr.y > hy)
-			dr.y -= ysize;
-		else if (dr.y < -hy)
-			dr.y += ysize;
-#ifdef DIM_3D
-		if (dr.z > hz)
-			dr.z -= zsize;
-		else if (dr.z < -hz)
-			dr.z += zsize;
-#endif
+		if (dx > hx)
+			dx -= xsize;
+		else if (dx < -hx)
+			dx += xsize; // periodic boundaries
+		if (dy > hy)
+			dy -= ysize;
+		else if (dy < -hy)
+			dy += ysize;
+		if (dz > hz)
+			dz -= zsize;
+		else if (dz < -hz)
+			dz += zsize;
 	}
-	v_scalar_product(&dr, rinv);
+	dx *= rinv;
+	dy *= rinv;
+	dz *= rinv;
 
-	f_vector dvel = v_subtraction(&p1->vel, &p2->vel); // relative velocity
+	double dvx = p1->vx - p2->vx; // relative velocity
+	double dvy = p1->vy - p2->vy;
+	double dvz = p1->vz - p2->vz;
 
-	double b = v_dot(&dr, &dvel); // dr.dv
+	double b = dx * dvx + dy * dvy + dz * dvz; // dr.dv
 	b *= 2.0 / (m1 + m2);
 	double dv1 = b * m2, dv2 = b * m1;
 
-	f_vector tmp = v_times_scalar(&dr, dv1);
-	v_minus(&p1->vel, &tmp);
-	tmp = v_times_scalar(&dr, dv2);
-	v_plus(&p2->vel, &tmp);
+	p1->vx -= dv1 * dx; // Change velocities after collision
+	p1->vy -= dv1 * dy; // delta v = (-) dx2.dv2
+	p1->vz -= dv1 * dz;
+	p2->vx += dv2 * dx;
+	p2->vy += dv2 * dy;
+	p2->vz += dv2 * dz;
 
 	dvtot += dv1 * m1 * r;
 	colcounter++;
@@ -796,45 +731,43 @@ void collision(event *ev) {
 void findcrossing(particle *part) {
 	double t, tmin;
 	int type; // Type 1,2,3 refers to x,y,z direction, -1,-2,-3 to negative x,y,z direction
-	double vx = part->vel.x;
-	double vy = part->vel.y;
+	double vx = part->vx;
+	double vy = part->vy;
+	double vz = part->vz;
 
 	if (vx < 0) {
-		tmin = (part->cell.x * cxsize - part->pos.x) / vx;
+		tmin = (part->cellx * cxsize - part->x) / vx;
 		type = -1;
 	} else {
-		tmin = ((part->cell.x + 1) * cxsize - part->pos.x) / vx;
+		tmin = ((part->cellx + 1) * cxsize - part->x) / vx;
 		type = 1;
 	}
 	if (vy < 0) {
-		t = (part->cell.y * cysize - part->pos.y);
+		t = (part->celly * cysize - part->y);
 		if (t > tmin * vy) {
 			type = -2;
 			tmin = t / vy;
 		}
 	} else {
-		t = ((part->cell.y + 1) * cysize - part->pos.y);
+		t = ((part->celly + 1) * cysize - part->y);
 		if (t < tmin * vy) {
 			type = 2;
 			tmin = t / vy;
 		}
 	}
-#ifdef DIM_3D
-	double vz = part->vel.z;
 	if (vz < 0) {
-		t = (part->cell.z * czsize - part->pos.z);
+		t = (part->cellz * czsize - part->z);
 		if (t > tmin * vz) {
 			type = -3;
 			tmin = t / vz;
 		}
 	} else {
-		t = ((part->cell.z + 1) * czsize - part->pos.z);
+		t = ((part->cellz + 1) * czsize - part->z);
 		if (t < tmin * vz) {
 			type = 3;
 			tmin = t / vz;
 		}
 	}
-#endif
 	createevent(part->t + tmin, part, part, type);
 }
 
@@ -847,95 +780,79 @@ void cellcross(event *ev) {
 	int type = ev->eventtype;
 	double pt = simtime - part->t;
 
-	f_vector tmp = v_times_scalar(&part->vel, pt);
-	v_plus(&part->pos, &tmp);
+	part->x += pt * part->vx; // Update part
+	part->y += pt * part->vy;
+	part->z += pt * part->vz;
 	part->t = simtime;
 
-	if (part->prev) {
+	if (part->prev)
 		part->prev->next = part->next; // Remove particle from celllist
-	}
-	else {
-#ifdef DIM_3D
-		celllist[part->cell.x][part->cell.y][part->cell.z] = part->next;
-#else
-		celllist[part->cell.x][part->cell.y] = part->next;
-#endif
-	}
-	if (part->next) {
+	else
+		celllist[part->cellx][part->celly][part->cellz] = part->next;
+	if (part->next)
 		part->next->prev = part->prev;
-	}
 
 	switch (type) {
-	case -1: //-x
-		if (part->cell.x == 0) {
-			part->cell.x = cx - 1;
-			part->pos.x += xsize;
-			part->boxes_traveled.x--;
-		} else
-			part->cell.x--;
-		break;
 	case 1: //+x
-		part->cell.x++;
-		if (part->cell.x == cx) {
-			part->cell.x = 0;
-			part->pos.x -= xsize;
-			part->boxes_traveled.x++;
+		part->cellx++;
+		if (part->cellx == cx) {
+			part->cellx = 0;
+			part->x -= xsize;
+			part->boxestraveledx++;
 		}
-		break;
-	case -2: //-y
-		if (part->cell.y == 0) {
-			part->cell.y = cy - 1;
-			part->pos.y += ysize;
-			part->boxes_traveled.y--;
-		} else
-			part->cell.y--;
 		break;
 	case 2: //+y
-		part->cell.y++;
-		if (part->cell.y == cy) {
-			part->cell.y = 0;
-			part->pos.y -= ysize;
-			part->boxes_traveled.y++;
+		part->celly++;
+		if (part->celly == cy) {
+			part->celly = 0;
+			part->y -= ysize;
+			part->boxestraveledy++;
 		}
-		break;
-#ifdef DIM_3D
-	case -3: //-z
-		if (part->cell.z == 0) {
-			part->cell.z = cz - 1;
-			part->pos.z += zsize;
-			part->boxes_traveled.z--;
-		} else
-			part->cell.z--;
 		break;
 	case 3: //+z
-		part->cell.z++;
-		if (part->cell.z == cz) {
-			part->cell.z = 0;
-			part->pos.z -= zsize;
-			part->boxes_traveled.z++;
+		part->cellz++;
+		if (part->cellz == cz) {
+			part->cellz = 0;
+			part->z -= zsize;
+			part->boxestraveledz++;
 		}
 		break;
-#endif
+	case -1: //-x
+		if (part->cellx == 0) {
+			part->cellx = cx - 1;
+			part->x += xsize;
+			part->boxestraveledx--;
+		} else
+			part->cellx--;
+		break;
+	case -2: //-y
+		if (part->celly == 0) {
+			part->celly = cy - 1;
+			part->y += ysize;
+			part->boxestraveledy--;
+		} else
+			part->celly--;
+		break;
+	case -3: //-z
+		if (part->cellz == 0) {
+			part->cellz = cz - 1;
+			part->z += zsize;
+			part->boxestraveledz--;
+		} else
+			part->cellz--;
+		break;
 	}
 
 	part->prev = NULL; // Add particle to celllist
-#ifdef DIM_3D
-	part->next = celllist[part->cell.x][part->cell.y][part->cell.z];
-	celllist[part->cell.x][part->cell.y][part->cell.z] = part;
-#else
-	part->next = celllist[part->cell.x][part->cell.y];
-	celllist[part->cell.x][part->cell.y] = part;
-#endif
+	part->next = celllist[part->cellx][part->celly][part->cellz];
+	celllist[part->cellx][part->celly][part->cellz] = part;
 	if (part->next)
 		part->next->prev = part;
-	part->nearboxedge = (part->cell.x == 0 || part->cell.y == 0 || part->cell.x == cx - 1 || part->cell.y == cy - 1);
-#ifdef DIM_3D
-	part->nearboxedge |= part->cell.z == 0 || part->cell.z == cz - 1;
-#endif
+	part->nearboxedge = (part->cellx == 0 || part->celly == 0 || part->cellz == 0 || part->cellx == cx - 1 || part->celly == cy - 1 || part->cellz == cz - 1);
 
-	removeevent(ev);                // Note that the next event added after this HAS to be the new cellcrossing
-	findcrossing(part);             // Find next crossing
-	findcollisioncell(part, type);  // Find collisions with particles in new neighbouring cells
+	removeevent(ev);							 // Note that the next event added after this HAS to be the new cellcrossing
+	findcrossing(part);						 // Find next crossing
+	findcollisioncell(part, type); // Find collisions with particles in new neighbouring cells
 }
 
 /**************************************************
@@ -1193,8 +1110,9 @@ void advance_particles_to_sim_time() {
 	for (i = 0; i < N; i++) {
 		p = &(particles[i]);
 		double dt = simtime - p->t;
-		f_vector tmp = v_times_scalar(&p->vel, dt);
-		v_plus(&p->pos, &tmp);
+		p->x += p->vx * dt;
+		p->y += p->vy * dt;
+		p->z += p->vz * dt;
 		p->t = simtime;
 	}
 }
@@ -1212,14 +1130,11 @@ void dump_particles() {
 	double en = 0;
 	for (i = 0; i < N; i++) {
 		p = particles + i;
-		en += p->mass * v_dot(&p->vel, &p->vel);
+		en += p->mass * (p->vx * p->vx + p->vy * p->vy + p->vz * p->vz);
 	}
 	double temperature = 0.5 * en / (float)N / 1.5;
 
-	double volume = xsize * ysize;
-#ifdef DIM_3D
-	volume *= zsize;
-#endif
+	double volume = xsize * ysize * zsize;
 	double pressid = (double)N / volume;
 	double pressnow = -(dvtot - dvtotlast) / (3.0 * volume * (simtime - timelast));
 	pressnow += pressid;
@@ -1249,20 +1164,12 @@ void dump_particles() {
 			p = &(particles[i]);
 			update(p);
 
-#ifdef DIM_3D
-			fprintf(file, "%c %.12lf %.12lf %.12lf %.12lf %.12lf %.12lf\n",
+			fprintf(file, "%c %.12lf  %.12lf  %.12lf  %.12lf %.12lf %.12lf\n",
 							'a' + p->type,
-							p->pos.x + xsize * p->boxes_traveled.x,
-							p->pos.y + ysize * p->boxes_traveled.y,
-							p->pos.z + zsize * p->boxes_traveled.z,
-							p->vel.x, p->vel.y, p->vel.z);
-#else
-			fprintf(file, "%c %.12lf %.12lf %.12lf %.12lf\n",
-							'a' + p->type,
-							p->pos.x + xsize * p->boxes_traveled.x,
-							p->pos.y + ysize * p->boxes_traveled.y,
-							p->vel.x, p->vel.y);
-#endif
+							p->x + xsize * p->boxestraveledx,
+							p->y + ysize * p->boxestraveledy,
+							p->z + zsize * p->boxestraveledz,
+							p->vx, p->vy, p->vz);
 		}
 		fclose(file);
 	}
@@ -1279,11 +1186,9 @@ void dump_particles() {
  ** Just for initialization
  **************************************************/
 void backinbox(particle *p) {
-	p->pos.x -= xsize * floor(p->pos.x / xsize);
-	p->pos.y -= ysize * floor(p->pos.y / ysize);
-#ifdef DIM_3D
-	p->pos.z -= zsize * floor(p->pos.z / zsize);
-#endif
+	p->x -= xsize * floor(p->x / xsize);
+	p->y -= ysize * floor(p->y / ysize);
+	p->z -= zsize * floor(p->z / zsize);
 }
 
 

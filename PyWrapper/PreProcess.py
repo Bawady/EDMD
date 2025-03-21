@@ -45,13 +45,11 @@ def warning(msg: str):
 
 
 if __name__ == "__main__":
-	default_yml = "single_spec_3d_units.yml"
+	default_yml = "single_spec_2d_units.yml"
 	cfg_ymls = sys.argv[1:] if len(sys.argv) > 1 else [default_yml]
 
 	set_conversion_mode(ConversionMode.DIM)
 	Constants.prepare_constants()
-
-	edmd_simulator_p = pathlib.Path("../Cell/md")
 	out_p = pathlib.Path("out")
 
 	for yml in cfg_ymls:
@@ -99,18 +97,21 @@ if __name__ == "__main__":
 
 		sim_cfg_yml = sim_out_p / "config.yml"
 
+#		edmd_simulator_p = pathlib.Path(f"../Cell/{'2d' if cfg['setup']['dimensions'] == 2 else '3d'}")
+		edmd_simulator_p = pathlib.Path("../Cell/3d")
+
 		rel_init_file = os.path.relpath(init_file_p, edmd_simulator_p.parent)
 		out_file_p = sim_out_p  / "particle_dump.csv"
 		rel_out_file = os.path.relpath(out_file_p, edmd_simulator_p.parent)
+		print(f"./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_file} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}")
 		sim_exit_result = subprocess.run(f"./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_file} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}",
-		                               shell=True, capture_output=True, text=True)
+																	 shell=True, capture_output=True, text=True)
 
+		detail(sim_exit_result.stdout)
 		if sim_exit_result.returncode != 0:
 			error("EDMD simulation failed with the following error:")
 			error(sim_exit_result.stderr)
 			raise SystemExit(sim_exit_result.returncode)
-
-		detail(sim_exit_result.stdout)
 		info("EDMD simulation succeeded")
 
 		close_log()
