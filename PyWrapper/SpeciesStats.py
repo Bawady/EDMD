@@ -86,9 +86,9 @@ class SpeciesStats:
 	def maxwell_boltzmann(temperature: float, mass: float, dims: int, speeds: np.ndarray) -> 	np.ndarray:
 		scale = np.sqrt(mag(Constants.KB) * temperature / mag(mass))
 		if dims == 2:
-			return scipy.stats.maxwell.pdf(speeds, scale=scale)
-		else:
 			return scipy.stats.rayleigh.pdf(speeds, scale=scale)
+		else:
+			return scipy.stats.maxwell.pdf(speeds, scale=scale)
 
 	@staticmethod
 	def maxwell_boltzmann_cdf(temperature, mass, dims):

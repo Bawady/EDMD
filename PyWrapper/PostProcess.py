@@ -58,7 +58,7 @@ def fit_lin(xs, ys, ax=None, col="bl", label: str="", species: str=""):
 		print(f"Could not fit linear curve for {label} {species}")
 
 if __name__ == '__main__':
-	default_dump_dir = "out/single_spec_3d_units.yml/20_03_12_55_16/"
+	default_dump_dir = "out/single_spec_3d_units/21_03_12_34_21"
 	dump_dir = sys.argv[1] if len(sys.argv) > 1 else default_dump_dir
 	dump_dir_p = pathlib.Path(dump_dir)
 
@@ -88,7 +88,7 @@ if __name__ == '__main__':
 		temperature = mag(non_dim_temp * m * sigma**2 / (tau_sim**2 * Constants.KB))
 		print(f"Simulation temperature: {temperature} K, time unit {tau_sim.to("ps")}")
 
-		iterations = math.ceil(mag(QParse(cfg["setup"]["max_sim_time"]) / QParse(cfg["setup"]["dump_interval"]))) + 1
+		iterations = math.ceil(mag(QParse(cfg["setup"]["max_sim_time"]) / QParse(cfg["setup"]["dump_interval"]))) + 2
 		print(f"Simulation ran for {iterations} iterations")
 
 		for spec in cfg["species"]:
@@ -119,7 +119,8 @@ if __name__ == '__main__':
 		species_stats[species].compute_stats(temperature, species, cfg)
 
 	# Plotting and fitting
-	ts = (np.arange(iterations) * tau_sim).to("ps")
+	dump_interval = QParse(cfg["setup"]["dump_interval"])
+	ts = (np.arange(iterations) * dump_interval).to("ps")
 	plot_info = [
 		((0, 0), "chi2", "Chi2", "Chi2 [1]"),
 		((0, 1), "ks_test", "Kolmogorov-Smirnov", "KS [1]"),
@@ -181,7 +182,7 @@ if __name__ == '__main__':
 		axs[mbd_ax_idx].set_ylim(0, 1.5*np.max(specstat.bin_heights))
 		axs[mbd_ax_idx].set_xlabel("Bin Speeds [m/s]")
 		axs[mbd_ax_idx].set_ylabel(f"Prob. Density [{1 if cfg['setup']['dimensions'] == 2 else 's/m'}]")
-		axs[mbd_ax_idx].set_title(f"Part. speeds at {(index * tau_sim).to('ps').magnitude: .2f} / {ts.magnitude[-1]: .2f} {ts.units}")
+		axs[mbd_ax_idx].set_title(f"Part. speeds at {(index * dump_interval).to('ps').magnitude: .4f} / {ts.magnitude[-1]: .4f} {ts.units}")
 		axs[mbd_ax_idx].grid(True)
 		axs[mbd_ax_idx].legend()
 
