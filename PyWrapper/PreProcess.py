@@ -101,10 +101,9 @@ if __name__ == "__main__":
 		edmd_simulator_p = pathlib.Path("../Cell/3d")
 
 		rel_init_file = os.path.relpath(init_file_p, edmd_simulator_p.parent)
-		out_file_p = sim_out_p  / "particle_dump.csv"
-		rel_out_file = os.path.relpath(out_file_p, edmd_simulator_p.parent)
-		print(f"./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_file} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}")
-		sim_exit_result = subprocess.run(f"./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_file} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}",
+		rel_out_dir = os.path.relpath(sim_out_p, edmd_simulator_p.parent)
+		detail(f"Simulation call: ./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_dir} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}")
+		sim_exit_result = subprocess.run(f"./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_dir} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}",
 																	 shell=True, capture_output=True, text=True)
 
 		detail(sim_exit_result.stdout)

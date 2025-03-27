@@ -14,6 +14,7 @@ from Constants import Constants
 class SpeciesStats:
 	particle_cnt : int
 	iterations   : int
+	bins         : int
 
 	particle_speeds : np.ndarray = field(init=False)
 	chi2            : np.ndarray = field(init=False)
@@ -25,14 +26,13 @@ class SpeciesStats:
 	bin_speeds      : np.ndarray = field(init=False)
 
 	def __post_init__(self):
-		self.particle_speeds = np.zeros((self.iterations, self.particle_cnt), dtype=np.float64)
 		self.chi2        = np.zeros(self.iterations, dtype=np.float64)
 		self.tvd         = np.zeros(self.iterations, dtype=np.float64)
 		self.ad_test     = np.zeros(self.iterations, dtype=np.float64)
 		self.ks_test     = np.zeros(self.iterations, dtype=np.float64)
 		self.cvm_test    = np.zeros(self.iterations, dtype=np.float64)
-		self.bin_speeds  = np.zeros((self.iterations, 80), dtype=np.float64)
-		self.bin_heights = np.zeros((self.iterations, 80), dtype=np.float64)
+		self.bin_speeds  = np.zeros((self.iterations, self.bins), dtype=np.float64)
+		self.bin_heights = np.zeros((self.iterations, self.bins), dtype=np.float64)
 
 	def compute_stats(self, temperature: float, species_name: str, sim_info: dict) -> None:
 		self.temperature = temperature
@@ -42,7 +42,7 @@ class SpeciesStats:
 		cdf = SpeciesStats.maxwell_boltzmann_cdf(temperature, mass, dims)
 
 		for j, iter_speeds in enumerate(self.particle_speeds):
-			bin_heights, bin_edges = np.histogram(iter_speeds, 80, density=True)
+			bin_heights, bin_edges = np.histogram(iter_speeds, self.bins, density=True)
 			bin_speeds = (bin_edges[:-1] + bin_edges[1:]) / 2
 			self.bin_speeds[j] = bin_speeds
 			self.bin_heights[j] = bin_heights
@@ -86,9 +86,9 @@ class SpeciesStats:
 	def maxwell_boltzmann(temperature: float, mass: float, dims: int, speeds: np.ndarray) -> 	np.ndarray:
 		scale = np.sqrt(mag(Constants.KB) * temperature / mag(mass))
 		if dims == 2:
-			return scipy.stats.maxwell.pdf(speeds, scale=scale)
-		else:
 			return scipy.stats.rayleigh.pdf(speeds, scale=scale)
+		else:
+			return scipy.stats.maxwell.pdf(speeds, scale=scale)
 
 	@staticmethod
 	def maxwell_boltzmann_cdf(temperature, mass, dims):

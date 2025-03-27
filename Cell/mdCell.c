@@ -12,14 +12,9 @@
 #define MAXEVENTS (20)
 
 // Maximum number of cells in each direction
-#define MAXCEL 75
+#define MAXCEL 100
 
 #define MAX_FILENAME_LENGTH 1023
-
-// Pi (if not already defined)
-#ifndef M_PI
-#define M_PI 3.1415926535897932
-#endif
 
 // Can be changed via programs args (see parse_arguments)
 double maxtime = 1;             // Simulation stops at this simulation time -> same unit / non.dim. factor as simtime
@@ -28,7 +23,11 @@ double writeinterval = .0025;   // Time between output to screen / data file
 unsigned long seed = 1;         // For seeding randomness
 
 char input_filename[MAX_FILENAME_LENGTH + 1] = ""; // File containing an input configuration
-char output_filename[MAX_FILENAME_LENGTH + 1] = "particles.csv"; // Location for the output dump file
+char output_dir[MAX_FILENAME_LENGTH + 2]; // Location for the output dumps
+const char *vel_output_filename = "particle_velocities.bin";
+const char *pos_output_filename = "particle_positions.bin";
+char vel_file_path[2*MAX_FILENAME_LENGTH+1], pos_file_path[2*MAX_FILENAME_LENGTH+1];
+
 
 // Config. variables for the simulation's data structures and core algorithm(s)
 
@@ -37,7 +36,7 @@ char output_filename[MAX_FILENAME_LENGTH + 1] = "particles.csv"; // Location for
 // The rest are scheduled in unordered linked lists associated with the "numeventlists" next blocks.
 // "numeventlists" is roughly equal to maxscheduletime / eventlisttime
 // Any events occurring even later are put into an overflow list
-// After every time block with length "eventlisttime", the set of events in the next linear list is moved into the binary search try.
+// After every time block with length "eventlisttime", the set of events in the next linear list is moved into the binary search tree.
 // All events in the overflow list are also rescheduled.
 
 // After every "writeinterval", the code will output two listsizes to screen.
@@ -63,6 +62,8 @@ int listcounter1 = 0, listcounter2 = 0, mergecounter = 0;
 
 event **eventlists; // Last one is overflow list
 
+uint16_t particle_id = 0;
+
 particle *particles;
 #ifdef DIM_3D
 particle *celllist[MAXCEL][MAXCEL][MAXCEL];
@@ -70,7 +71,7 @@ particle *celllist[MAXCEL][MAXCEL][MAXCEL];
 particle *celllist[MAXCEL][MAXCEL];
 #endif
 event *eventlist;
-event *root;
+event *calendar_root;
 event **eventpool;
 int nempty = 0;
 double xsize, ysize, zsize;     // Box size
@@ -84,9 +85,11 @@ double thermostatinterval = 0.01; // Time interval between applications of therm
 
 int main(int argc, char **argv) {
 	parse_arguments(argc, argv);
+	prepare_dump_file_paths();
 	fprintf(stdout, "Initializing\n");
 	init();
 	fprintf(stdout, "Starting simulation\n");
+	size_t stp = 0;
 
 	while (simtime <= maxtime) {
 		step();
@@ -102,11 +105,20 @@ int main(int argc, char **argv) {
 	free(eventlist);
 	free(eventpool);
 
+	fprintf(stdout, "Simulation ended successfully\n");
+
 	exit(EXIT_SUCCESS);
 }
 
+void prepare_dump_file_paths(){
+	strncpy(vel_file_path, output_dir, MAX_FILENAME_LENGTH+2);
+	strncpy(pos_file_path, output_dir, MAX_FILENAME_LENGTH+2);
+	strncat(vel_file_path, vel_output_filename, MAX_FILENAME_LENGTH);
+	strncat(pos_file_path, pos_output_filename, MAX_FILENAME_LENGTH);
+}
+
 void parse_arguments(int argc, char **argv) {
-	int opt, filename_provided = 0;
+	int opt, filename_provided = 0, out_dir_provided = 0;
 
 	while ((opt = getopt(argc, argv, "m:d:i:f:o:s:")) != -1) {
 		switch (opt) {
@@ -136,25 +148,33 @@ void parse_arguments(int argc, char **argv) {
 				fprintf(stderr, "Error: Output filename exceeds %d characters.\n", MAX_FILENAME_LENGTH);
 				exit(EXIT_FAILURE);
 			}
-			strncpy(output_filename, optarg, MAX_FILENAME_LENGTH);
-			output_filename[MAX_FILENAME_LENGTH] = '\0'; // Ensure null termination
+			// Ensure the output direcoty ends in a slash such that file names can be appended
+			char *last_char = stpncpy(output_dir, optarg, MAX_FILENAME_LENGTH);
+			if (*last_char != '/') {
+				*last_char = '/';
+			}
+			output_dir[MAX_FILENAME_LENGTH+1] = '\0'; // Ensure null termination
+			out_dir_provided = 1;
 			break;
 		default:
-			fprintf(stderr, "Usage: %s -f input_file [-s SEED] [-m MAXTIME] [-d DO_DUMP] [-i DUMP_INTERVAL] \n", argv[0]);
+			fprintf(stderr, "Usage: %s -f INPUT_FILE  -o OUTPUT_DIR [-s SEED] [-m MAXTIME] [-d DO_DUMP] [-i DUMP_INTERVAL]\n", argv[0]);
 			exit(EXIT_FAILURE);
 		}
 	}
 
 	if (!filename_provided) {
-		fprintf(stderr, "Error: Input file (-f FILE_NAME) is required.\n");
+		fprintf(stderr, "Error: Input file (-f INPUT_FILE) is required.\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if (!out_dir_provided) {
+		fprintf(stderr, "Error: Output directory (-o OUTPUT_DIR) is required.\n");
 		exit(EXIT_FAILURE);
 	}
 }
 
-/**************************************************
- **                 PRINTSTUFF
- ** Some data at the end of the simulation
- **************************************************/
+
+// Some some information about the simulation at its end
 void printstuff() {
 	int i;
 	particle *p;
@@ -188,16 +208,13 @@ void printstuff() {
 	fprintf(stdout, "Measured pressure     : %lf + %lf = %lf\n", press, pressid, presstot);
 }
 
-/**************************************************
- **                    INIT
- **************************************************/
+
 void init() {
 	int i;
 	fprintf(stdout, "Seed: %u\n", (int)seed);
 	init_genrand(seed);
 
 	loadparticles();
-	//    randommovement();
 	hx = 0.5 * xsize;
 	hy = 0.5 * ysize;
 	hz = 0.5 * zsize; // Values used for periodic boundary conditions
@@ -219,7 +236,7 @@ void init() {
 	for (i = 0; i < N; i++) {
 		particle *p = particles + i;
 		p->cellcrossing = eventpool[nempty - 1]; // Connect cellcrossing event to particle
-		findcrossing(p);												 // Find the next cell crossing
+		findcrossing(p);                         // Find the next cell crossing
 	}
 
 	fprintf(stdout, "Done adding cell crossings: %d events\n", totalevents - nempty);
@@ -227,6 +244,7 @@ void init() {
 	findallcollisions();
 	fprintf(stdout, "Done adding collisions: %d events\n", totalevents - nempty);
 }
+
 
 void alloc_particle_array(int n) {
 	N = n; // set global particle count variable
@@ -237,8 +255,8 @@ void alloc_particle_array(int n) {
 	}
 }
 
+
 /******************************************************
- **               MYGETLINE
  ** Reads a single line, skipping over lines
  ** commented out with #
  ******************************************************/
@@ -253,8 +271,8 @@ int mygetline(char *str, FILE *f) {
 	return 0;
 }
 
+
 /**************************************************
- **                    LOADPARTICLES
  ** Read particles from file
  ** First line: Number of particles
  ** Second line: box size along all three axes
@@ -273,7 +291,7 @@ void loadparticles() {
 	FILE *file;
 	file = fopen(input_filename, "r");
 	if (!file) {
-		fprintf(stderr, "File not found!\n");
+		fprintf(stderr, "File %s not found!\n", input_filename);
 		exit(EXIT_FAILURE);
 	}
 	mygetline(buffer, file);
@@ -302,7 +320,7 @@ void loadparticles() {
 #else
 		ftmp = sscanf(buffer, "%c %lf %lf %lf %lf %lf\n", &tmp, &(p->pos.x), &(p->pos.y), &(p->vel.x), &(p->vel.y), &(p->radius));
 #endif
-		backinbox(p);
+		apply_periodic_boundaries(p);
 #ifdef DIM_3D
 		if (ftmp != 8) {
 #else
@@ -315,6 +333,7 @@ void loadparticles() {
 		p->mass = 1;
 		vfilled += 8 * p->radius * p->radius * p->radius;
 		p->cellcrossing = NULL;
+		p->id = particle_id++;
 	}
 	fclose(file);
 
@@ -322,56 +341,11 @@ void loadparticles() {
 	fprintf(stdout, "Packing fraction: %lf\n", M_PI / (6.0 * xsize * ysize * zsize) * vfilled);
 }
 
-/**************************************************
- ** Assign random velocities to all particles
- ** Center-of-mass velocity = 0
- ** Kinetic energy per particle = 3kT/2
- **************************************************/
-//void randommovement() {
-//	particle *p;
-//	double v2tot = 0, vxtot = 0, vytot = 0, vztot = 0;
-//	double mtot = 0;
-//	int i;
-//
-//	fprintf(stdout, "Assigning random velocities to all particles\n");
-//
-//	for (i = 0; i < N; i++) {
-//		p = particles + i;
-//		double imsq = 1.0 / sqrt(p->mass);
-//
-//		p->vel.x = imsq * random_gaussian();
-//		p->vel.y = imsq * random_gaussian();
-//		p->vel.z = imsq * random_gaussian();
-//		vxtot += p->mass * p->vel.x; // Keep track of total v
-//		vytot += p->mass * p->vel.y;
-//		vztot += p->mass * p->vel.z;
-//		mtot += p->mass;
-//	}
-//
-//	vxtot /= mtot;
-//	vytot /= mtot;
-//	vztot /= mtot;
-//	for (i = 0; i < N; i++) {
-//		p = &(particles[i]);
-//		p->vx -= vxtot; // Make sure v_cm = 0
-//		p->vy -= vytot;
-//		p->vz -= vztot;
-//		v2tot += p->mass * (p->vx * p->vx + p->vy * p->vy + p->vz * p->vz);
-//	}
-//	double fac = sqrt(3.0 / (v2tot / N));
-//	for (i = 0; i < N; i++) {
-//		p = &(particles[i]);
-//		p->vx *= fac; // Fix energy
-//		p->vy *= fac;
-//		p->vz *= fac;
-//	}
-//}
 
 /**************************************************
- **                UPDATE
  ** Update particle to the current time
  **************************************************/
-void update(particle *p1) {
+void move(particle *p1) {
 	// 3D
 	double dt = simtime - p1->t;
 	p1->t = simtime;
@@ -379,27 +353,32 @@ void update(particle *p1) {
 	v_plus(&p1->pos, &tmp);
 }
 
+
 /**************************************************
- **                 INITCELLLIST
  ** Initialize the cell list
  ** Cell size should be at least:
  **    shellsize * [diameter of largest sphere]
  ** Can use larger cells at low densities
  **************************************************/
 void initcelllist() {
-	// 3D
 	int i, j, k;
-	cx = (int)(xsize - 0.0001); // Set number of cells
+	// Number of cells in each dimension
+	// OQ: The 8 * N threshold seems like some heuristic -> where from?
+	cx = (int)(xsize - 0.0001);
 	cy = (int)(ysize - 0.0001);
-	cz = (int)(zsize - 0.0001);
-//	cz = 1;
-
+#ifdef DIM_3D
+	cz = (int) zsize == 1 ? 1 : (int)(zsize - 0.0001);
 	while (cx * cy * cz > 8 * N) {
+#else
+	while (cx * cy > 8 * N) {
+#endif
 		cx *= 0.9;
 		cy *= 0.9;
-		cz *= 0.9;
+		if (cz != 1) cz *= 0.9; // in the 2D case this is simply unused
 	}
-	fprintf(stdout, "Cells: %d, %d, %d\n", cx, cy, cz);
+
+	fprintf(stdout, "Cells (X, Y, Z): (%d, %d, %d), allocating cell list memory.\n", cx, cy, cz);
+
 	int hitmax = 0;
 	if (cx > MAXCEL) {
 		cx = MAXCEL;
@@ -416,10 +395,13 @@ void initcelllist() {
 	if (hitmax)
 		fprintf(stdout, "Maximum cellsize reduced. Consider increasing MAXCEL. New values:  %d, %d, %d\n", cx, cy, cz);
 
-	cxsize = xsize / cx; // Set cell size
+	// Size of cell in each direction
+	cxsize = xsize / cx;
 	cysize = ysize / cy;
 	czsize = zsize / cz;
-	for (i = 0; i < cx; i++) // Clear celllist
+
+	// Clear celllist
+	for (i = 0; i < cx; i++)
 		for (j = 0; j < cy; j++)
 #ifdef DIM_3D
 			for (k = 0; k < cz; k++) {
@@ -428,15 +410,15 @@ void initcelllist() {
 #else
 			celllist[i][j] = NULL;
 #endif
+
 	for (i = 0; i < N; i++)
 		addtocelllist(particles + i);
 }
 
+
 /**************************************************
- **                    ADDTOCELLLIST
  ** Add particle to the cell list.
- ** Note that each cell is implemented as a doubly
- ** linked list.
+ ** Note that each cell is implemented as a doubly linked list.
  **************************************************/
 void addtocelllist(particle *p) {
 	p->cell.x = p->pos.x / cxsize; // Find particle's cell
@@ -464,9 +446,7 @@ void addtocelllist(particle *p) {
 #endif
 }
 
-/**************************************************
- **               REMOVEFROMCELLLIST
- **************************************************/
+
 void removefromcelllist(particle *p1) {
 	if (p1->prev)
 		p1->prev->next = p1->next; // Remove particle from celllist
@@ -480,17 +460,17 @@ void removefromcelllist(particle *p1) {
 		p1->next->prev = p1->prev;
 }
 
+
 /**************************************************
- **                     STEP
  ** Process a single event
  **************************************************/
 void step() {
 	event *ev;
-	ev = root->right;
-	while (ev == NULL) // Need to include next event list?
+	ev = calendar_root->right;
+	while (ev == NULL) // No more future events?
 	{
-		addnexteventlist();
-		ev = root->right;
+		addnexteventlist(); // add next event bucket to the tree
+		ev = calendar_root->right;
 	}
 
 	while (ev->left)
@@ -498,10 +478,10 @@ void step() {
 
 	simtime = ev->eventtime;
 	switch (ev->eventtype) {
-	case 0:
+	case COLLISION:
 		collision(ev);
 		break;
-	case 100:
+	case WRITE:
 		removeevent(ev);
 		dump_particles();
 		break;
@@ -510,17 +490,17 @@ void step() {
 	}
 }
 
+
 /**************************************************
- **                FINDCOLLISION
  ** Detect the next collision for two particles
  ** Note that p1 is always up to date in
  ** findcollision
  **************************************************/
 void findcollision(particle *p1, particle *p2) {
 	double dt2 = simtime - p2->t;
-	// relative distance at current time
+	// relative distance at current time (pos1 - (pos2 + vel2 * dt2))
 	f_vector tmp = v_times_scalar(&p2->vel, dt2);
-  tmp = v_subtraction(&p2->pos, &tmp);
+  tmp = v_addition(&p2->pos, &tmp);
 	f_vector dr = v_subtraction(&p1->pos, &tmp);
 
 	if (p1->nearboxedge) {
@@ -556,8 +536,8 @@ void findcollision(particle *p1, particle *p2) {
 	createevent(t, p1, p2, 0);
 }
 
+
 /**************************************************
- **                FINDCOLLISIONS
  ** Find all collisions for particle p1.
  ** The particle 'notthis' isn't checked.
  **************************************************/
@@ -602,8 +582,8 @@ void findcollisions(particle *p1, particle *notthis) // All collisions of partic
 	}
 }
 
+
 /**************************************************
- **                FINDALLCOLLISION
  ** All collisions of all particle pairs
  **************************************************/
 void findallcollisions() // All collisions of all particle pairs
@@ -619,10 +599,10 @@ void findallcollisions() // All collisions of all particle pairs
 #endif
 		p1 = &(particles[i]);
 
-		for (dx = cellx - 1; dx < cellx + 2; dx++)
-			for (dy = celly - 1; dy < celly + 2; dy++)
+		for (dx = cellx - 1; dx <= cellx + 1; dx++)
+			for (dy = celly - 1; dy <= celly + 1; dy++)
 #ifdef DIM_3D
-				for (dz = cellz - 1; dz < cellz + 2; dz++) {
+				for (dz = cellz - 1; dz <= cellz + 1; dz++) {
 					p2 = celllist[dx % cx][dy % cy][dz % cz];
 #else
 					p2 = celllist[dx % cx][dy % cy];
@@ -638,8 +618,8 @@ void findallcollisions() // All collisions of all particle pairs
 	}
 }
 
+
 /**************************************************
- **                FINDCOLLISIONCELL
  ** Find all collisions for particle p1 after a
  ** cellcrossing.
  ** This could find events that have already been
@@ -720,8 +700,8 @@ void findcollisioncell(particle *p1, int type) {
 	}
 }
 
+
 /**************************************************
- **                  COLLISION
  ** Process a single collision event
  **************************************************/
 void collision(event *ev) {
@@ -731,8 +711,8 @@ void collision(event *ev) {
 	double m1 = p1->mass, r1 = p1->radius;
 	double m2 = p2->mass, r2 = p2->radius;
 
-	update(p1);
-	update(p2);
+	move(p1);
+	move(p2);
 
 	double r = r1 + r2;
 	double rinv = 1.0 / r;
@@ -789,8 +769,8 @@ void collision(event *ev) {
 	findcollisions(p2, p1);
 }
 
+
 /**************************************************
- **                  FINDCROSSING
  ** Find the next cellcrossing for a particle
  **************************************************/
 void findcrossing(particle *part) {
@@ -801,21 +781,21 @@ void findcrossing(particle *part) {
 
 	if (vx < 0) {
 		tmin = (part->cell.x * cxsize - part->pos.x) / vx;
-		type = -1;
+		type = XMINUS;
 	} else {
 		tmin = ((part->cell.x + 1) * cxsize - part->pos.x) / vx;
-		type = 1;
+		type = XPLUS;
 	}
 	if (vy < 0) {
 		t = (part->cell.y * cysize - part->pos.y);
 		if (t > tmin * vy) {
-			type = -2;
+			type = YMINUS;
 			tmin = t / vy;
 		}
 	} else {
 		t = ((part->cell.y + 1) * cysize - part->pos.y);
 		if (t < tmin * vy) {
-			type = 2;
+			type = YPLUS;
 			tmin = t / vy;
 		}
 	}
@@ -824,13 +804,13 @@ void findcrossing(particle *part) {
 	if (vz < 0) {
 		t = (part->cell.z * czsize - part->pos.z);
 		if (t > tmin * vz) {
-			type = -3;
+			type = ZMINUS;
 			tmin = t / vz;
 		}
 	} else {
 		t = ((part->cell.z + 1) * czsize - part->pos.z);
 		if (t < tmin * vz) {
-			type = 3;
+			type = ZPLUS;
 			tmin = t / vz;
 		}
 	}
@@ -851,8 +831,9 @@ void cellcross(event *ev) {
 	v_plus(&part->pos, &tmp);
 	part->t = simtime;
 
+ // Remove particle from cell's linked list and change pointers of predecessor and successor (if any)
 	if (part->prev) {
-		part->prev->next = part->next; // Remove particle from celllist
+		part->prev->next = part->next;
 	}
 	else {
 #ifdef DIM_3D
@@ -942,11 +923,12 @@ void cellcross(event *ev) {
  **                 INITEVENTPOOL
  **************************************************/
 void initeventpool() {
-	eventlisttime = eventlisttimemultiplier / N;
-	numeventlists = ceil(maxscheduletime / eventlisttime);
+	eventlisttime = eventlisttimemultiplier / N;           // Delta t
+	numeventlists = ceil(maxscheduletime / eventlisttime); // t_max
 	maxscheduletime = numeventlists * eventlisttime;
 	fprintf(stdout, "number of event lists: %d\n", numeventlists);
 
+	// Amount of regular event buckets + overflow bucket
 	eventlists = (event **)calloc(numeventlists + 1, sizeof(event *));
 	if (!eventlists) {
 		fprintf(stderr, "Failed to allocate memory for eventlists\n");
@@ -970,16 +952,16 @@ void initeventpool() {
 		e->prevp2 = e;
 		nempty++; // nempty keeps track of the number of free events
 	}
-	root = eventpool[--nempty];				 // Create root event
-	root->eventtime = -99999999999.99; // Root event is empty, but makes sure every other event has a parent
-	root->eventtype = 99;							 // This makes sure we don't have to keep checking this when adding/removing events
-	root->parent = NULL;
+	calendar_root = eventpool[--nempty];        // Create root event
+	calendar_root->eventtime = -99999999999.99; // Root event is empty, but makes sure every other event has a parent
+	calendar_root->eventtype = ROOT;            // This makes sure we don't have to keep checking this when adding/removing events
+	calendar_root->parent = NULL;
 
 	event *writeevent = eventpool[--nempty]; // Setup write event
 	writeevent->eventtime = 0;
-	writeevent->eventtype = 100;
-	root->right = writeevent;
-	writeevent->parent = root;
+	writeevent->eventtype = WRITE;
+	calendar_root->right = writeevent;
+	writeevent->parent = calendar_root;
 	fprintf(stdout, "Event tree initialized: %d events\n", totalevents - nempty);
 }
 
@@ -989,7 +971,7 @@ void initeventpool() {
  **************************************************/
 void addeventtotree(event *newevent) {
 	double time = newevent->eventtime;
-	event *loc = root;
+	event *loc = calendar_root;
 	int busy = 1;
 	while (busy) // Find location to add event into tree (loc)
 	{
@@ -1023,7 +1005,7 @@ void addeventtotree(event *newevent) {
 void addevent(event *newevent) {
 	double dt = newevent->eventtime - reftime;
 
-	if (dt < eventlisttime) // Event in near future: Put it in the tree
+	if (dt < eventlisttime) // Event in near future if dt within Delta t -> Put it in the tree insteaf of a bucket
 	{
 		newevent->queue = currentlist;
 		addeventtotree(newevent);
@@ -1059,12 +1041,12 @@ void createevent(double time, particle *p1, particle *p2, int type) {
 	newevent->p1 = p1;
 	newevent->eventtype = type;
 
-	if (type == 0) // Event is a collision
+	if (type == COLLISION)
 	{
 		newevent->p2 = p2;
 		event *cc = newevent->p1->cellcrossing; // Use cellcrossing event with each particle
-		newevent->nextp1 = cc->nextp1;					//... to link this event into their lists
-		cc->nextp1 = newevent;									// cellcrossing -> this event -> other ...
+		newevent->nextp1 = cc->nextp1;          //... to link this event into their lists
+		cc->nextp1 = newevent;                  // cellcrossing -> this event -> other ...
 		newevent->prevp1 = cc;
 		newevent->nextp1->prevp1 = newevent;
 
@@ -1118,7 +1100,7 @@ void addnexteventlist() {
  **************************************************/
 void removeevent(event *oldevent) {
 
-	if (oldevent->eventtype == 0) // Update linked lists if it's  a particle event
+	if (oldevent->eventtype == COLLISION) // Update doubly-linked lists of events involving particles in case of collision
 	{
 		oldevent->nextp1->prevp1 = oldevent->prevp1;
 		oldevent->prevp1->nextp1 = oldevent->nextp1;
@@ -1129,7 +1111,7 @@ void removeevent(event *oldevent) {
 		oldevent->prevp1->nextp1 = oldevent->nextp1;
 	}
 
-	if (oldevent->queue != currentlist) // Not in the binary tree
+	if (oldevent->queue != currentlist) // Not in the binary tree (i.e., in some future event bucket)
 	{
 		if (oldevent->right)
 			oldevent->right->left = oldevent->left;
@@ -1207,7 +1189,7 @@ void dump_particles() {
 	static double timelast = 0;
 	int i;
 	particle *p;
-	FILE *file;
+	FILE *vel_file, *pos_file;
 
 	double en = 0;
 	for (i = 0; i < N; i++) {
@@ -1239,32 +1221,35 @@ void dump_particles() {
 	if (makesnapshots) {
 		if (first) {
 			first = 0;
-			file = fopen(output_filename, "w");
+			pos_file = fopen(pos_file_path, "wb");
+			vel_file = fopen(vel_file_path, "wb");
 		}
 		else {
-			file = fopen(output_filename, "a");
+			pos_file = fopen(pos_file_path, "ab");
+			vel_file = fopen(vel_file_path, "ab");
 		}
-		fprintf(file, "%d\n%.12lf %.12lf %.12lf\n%.12lf\n", (int)N, xsize, ysize, zsize, temperature);
+ //		fprintf(file, "%d\n%.12lf %.12lf %.12lf\n%.12lf\n", (int)N, xsize, ysize, zsize, temperature);
 		for (i = 0; i < N; i++) {
 			p = &(particles[i]);
-			update(p);
+			move(p);
 
 #ifdef DIM_3D
-			fprintf(file, "%c %.12lf %.12lf %.12lf %.12lf %.12lf %.12lf\n",
-							'a' + p->type,
-							p->pos.x + xsize * p->boxes_traveled.x,
-							p->pos.y + ysize * p->boxes_traveled.y,
-							p->pos.z + zsize * p->boxes_traveled.z,
-							p->vel.x, p->vel.y, p->vel.z);
+			double data[] = {p->vel.x, p->vel.y, p->vel.z};
+			fwrite(data, sizeof(double), 3, vel_file);
+			data[0] = p->pos.x;
+			data[1] = p->pos.y;
+			data[2] = p->pos.z;
+			fwrite(data, sizeof(double), 3, pos_file);
 #else
-			fprintf(file, "%c %.12lf %.12lf %.12lf %.12lf\n",
-							'a' + p->type,
-							p->pos.x + xsize * p->boxes_traveled.x,
-							p->pos.y + ysize * p->boxes_traveled.y,
-							p->vel.x, p->vel.y);
+			double data[] = {p->vel.x, p->vel.y};
+			fwrite(data, sizeof(double), 2, vel_file);
+			data[0] = p->pos.x;
+			data[1] = p->pos.y;
+			fwrite(data, sizeof(double), 2, pos_file);
 #endif
 		}
-		fclose(file);
+		fclose(vel_file);
+		fclose(pos_file);
 	}
 
 	counter++;
@@ -1274,11 +1259,10 @@ void dump_particles() {
 }
 
 /**************************************************
- **                    BACKINBOX
  ** Apply periodic boundaries
  ** Just for initialization
  **************************************************/
-void backinbox(particle *p) {
+void apply_periodic_boundaries(particle *p) {
 	p->pos.x -= xsize * floor(p->pos.x / xsize);
 	p->pos.y -= ysize * floor(p->pos.y / ysize);
 #ifdef DIM_3D

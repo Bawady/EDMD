@@ -1,5 +1,7 @@
 
 
+typedef enum event_type_t {COLLISION=0, ROOT=99, WRITE=100, XMINUS=-1, XPLUS=1, YMINUS=-2, YPLUS=2, ZMINUS=-3, ZPLUS=3};
+
 //Event structure
 typedef struct sevent
 {
@@ -63,6 +65,16 @@ static inline f_vector v_subtraction(const f_vector *v1, const f_vector *v2) {
     return result;
 }
 
+static inline f_vector v_addition(const f_vector *v1, const f_vector *v2) {
+    f_vector result;
+    result.x = v1->x + v2->x;
+    result.y = v1->y + v2->y;
+#ifdef DIM_3D
+    result.z = v1->z + v2->z;
+#endif
+    return result;
+}
+
 static inline f_vector v_multiplication(const f_vector *v1, const f_vector *v2) {
     f_vector result;
     result.x = v1->x * v2->x;
@@ -107,6 +119,7 @@ typedef struct sparticle
   event* cellcrossing;            // Cell crossing event
   struct sparticle* prev, *next;  // Doubly linked cell list
   uint8_t type;                   // Particle type
+  uint16_t id;
 } particle;
 
 int main(int, char**);
@@ -140,4 +153,20 @@ void removeevent (event*);
 void advance_particles_to_sim_time();
 void dump_particles();
 double random_gaussian();
-void backinbox(particle* p);
+void apply_periodic_boundaries(particle* p);
+void prepare_dump_file_paths();
+
+const char *event_type_to_str(int et) {
+	switch(et) {
+		case WRITE: return "WRITE";
+		case COLLISION: return "COLLISION";
+		case ROOT: return "ROOT";
+		case XMINUS: return "X-";
+		case XPLUS: return "X+";
+		case YMINUS: return "Y-";
+		case YPLUS: return "Y+";
+		case ZMINUS: return "Z-";
+		case ZPLUS: return "Z+";
+		default: return "UNKNOWN";
+	}
+}
