@@ -26,7 +26,8 @@ char input_filename[MAX_FILENAME_LENGTH + 1] = ""; // File containing an input c
 char output_dir[MAX_FILENAME_LENGTH + 2]; // Location for the output dumps
 const char *vel_output_filename = "particle_velocities.bin";
 const char *pos_output_filename = "particle_positions.bin";
-char vel_file_path[2*MAX_FILENAME_LENGTH+1], pos_file_path[2*MAX_FILENAME_LENGTH+1];
+const char *dbg_filename = "dbg.bin";
+char vel_file_path[2*MAX_FILENAME_LENGTH+1], pos_file_path[2*MAX_FILENAME_LENGTH+1], dbg_file_path[2*MAX_FILENAME_LENGTH+1];
 
 
 // Config. variables for the simulation's data structures and core algorithm(s)
@@ -89,7 +90,6 @@ int main(int argc, char **argv) {
 	fprintf(stdout, "Initializing\n");
 	init();
 	fprintf(stdout, "Starting simulation\n");
-	size_t stp = 0;
 
 	while (simtime <= maxtime) {
 		step();
@@ -115,6 +115,9 @@ void prepare_dump_file_paths(){
 	strncpy(pos_file_path, output_dir, MAX_FILENAME_LENGTH+2);
 	strncat(vel_file_path, vel_output_filename, MAX_FILENAME_LENGTH);
 	strncat(pos_file_path, pos_output_filename, MAX_FILENAME_LENGTH);
+
+	strncpy(dbg_file_path, output_dir, MAX_FILENAME_LENGTH+2);
+	strncat(dbg_file_path, dbg_filename, MAX_FILENAME_LENGTH);
 }
 
 void parse_arguments(int argc, char **argv) {
@@ -286,7 +289,7 @@ void loadparticles() {
 	char tmp;
 	int i, particle_cnt;
 	particle *p;
-	char buffer[255];
+	char buffer[1024];
 
 	FILE *file;
 	file = fopen(input_filename, "r");
@@ -301,8 +304,13 @@ void loadparticles() {
 		exit(EXIT_FAILURE);
 	}
 	mygetline(buffer, file);
+#ifdef DIM_3D
 	ftmp = sscanf(buffer, "%lf %lf %lf\n", &xsize, &ysize, &zsize);
 	if (ftmp != 3) {
+#else
+	ftmp = sscanf(buffer, "%lf %lf\n", &xsize, &ysize);
+	if (ftmp != 2) {
+#endif
 		fprintf(stderr, "Read error (n or box)\n");
 		exit(EXIT_FAILURE);
 	}
@@ -314,7 +322,6 @@ void loadparticles() {
 	for (i = 0; i < N; i++) {
 		p = &(particles[i]);
 		mygetline(buffer, file);
-		// 3D
 #ifdef DIM_3D
 		ftmp = sscanf(buffer, "%c %lf %lf %lf %lf %lf %lf %lf\n", &tmp, &(p->pos.x), &(p->pos.y), &(p->pos.z), &(p->vel.x), &(p->vel.y), &(p->vel.z), &(p->radius));
 #else
@@ -326,7 +333,7 @@ void loadparticles() {
 #else
 		if (ftmp != 6) {
 #endif
-			fprintf(stdout, "Read error (particle) %d \n String: %s\n", ftmp, buffer);
+			fprintf(stderr, "Read error (particle) %d \n String: %s\n", ftmp, buffer);
 			exit(EXIT_FAILURE);
 		}
 		p->type = tmp - 'a';
@@ -484,6 +491,11 @@ void step() {
 	case WRITE:
 		removeevent(ev);
 		dump_particles();
+
+//		for (int i = 0; i < N; i++) {
+//			particle *p = &(particles[i]);
+//			fprintf(stdout, "\t%d %f %f %f %f %d %d %ld\n", p->id, p->pos.x, p->pos.y, p->vel.x, p->vel.y, p->cell.x, p->cell.y, (void*) &(*p));
+//		}
 		break;
 	default:
 		cellcross(ev);
@@ -502,6 +514,9 @@ void findcollision(particle *p1, particle *p2) {
 	f_vector tmp = v_times_scalar(&p2->vel, dt2);
   tmp = v_addition(&p2->pos, &tmp);
 	f_vector dr = v_subtraction(&p1->pos, &tmp);
+
+//	fprintf(stdout, "\tPositions are (%f, %f), (%f, %f)\n", p1->pos.x, p1->pos.y, p2->pos.x, p2->pos.y);
+//	fprintf(stdout, "\tVelocities are (%f, %f), (%f, %f)\n", p1->vel.x, p1->vel.y, p2->vel.x, p2->vel.y);
 
 	if (p1->nearboxedge) {
 		if (dr.x > hx)
@@ -522,18 +537,23 @@ void findcollision(particle *p1, particle *p2) {
 
 	f_vector dvel = v_subtraction(&p1->vel, &p2->vel); // relative velocity
 	double b = v_dot(&dr, &dvel);
-	if (b > 0)
+	if (b > 0) {
+//		fprintf(stdout, "\tno collisions as b <= 0\n");
 		return;
+	}
 
 	double dvel2 = v_dot(&dvel, &dvel);
 	double dr2 = v_dot(&dr, &dr);
 	double md = p1->radius + p2->radius;
 
-	double disc = b * b - dvel2 * (dr2 - md * md);
-	if (disc < 0)
+	double discriminant = b * b - dvel2 * (dr2 - md * md);
+	if (discriminant < 0){
+//		fprintf(stdout, "\tNo collision as discriminant < 0\n");
 		return;
-	double t = simtime + (-b - sqrt(disc)) / dvel2;
-	createevent(t, p1, p2, 0);
+	}
+	double t = simtime + (-b - sqrt(discriminant)) / dvel2;
+//	fprintf(stdout, "\tSchedule collision event for time %f\n", t);
+	createevent(t, p1, p2, COLLISION);
 }
 
 
@@ -588,10 +608,16 @@ void findcollisions(particle *p1, particle *notthis) // All collisions of partic
  **************************************************/
 void findallcollisions() // All collisions of all particle pairs
 {
-	int i, dx, dy, dz, cellx, celly, cellz;
+	int i, dx, dy, cellx, celly;
+#ifdef DIM_3D
+	int dz, cellz;
+#endif
 	particle *p1, *p2;
 
+//	fprintf(stdout, "Initialize particle collision events\n");
+
 	for (i = 0; i < N; i++) {
+		// plus amount of cells to mitigate obtaining a negative cell index at the nested loop below -> % in index calculation makes this a periodic-boundary behavior
 		cellx = particles[i].cell.x + cx;
 		celly = particles[i].cell.y + cy;
 #ifdef DIM_3D
@@ -599,8 +625,8 @@ void findallcollisions() // All collisions of all particle pairs
 #endif
 		p1 = &(particles[i]);
 
-		for (dx = cellx - 1; dx <= cellx + 1; dx++)
-			for (dy = celly - 1; dy <= celly + 1; dy++)
+		for (dx = cellx - 1; dx <= cellx + 1; dx++){
+			for (dy = celly - 1; dy <= celly + 1; dy++){
 #ifdef DIM_3D
 				for (dz = cellz - 1; dz <= cellz + 1; dz++) {
 					p2 = celllist[dx % cx][dy % cy][dz % cz];
@@ -608,13 +634,18 @@ void findallcollisions() // All collisions of all particle pairs
 					p2 = celllist[dx % cx][dy % cy];
 #endif
 					while (p2) {
-						if (p2 > p1)
+						// compare memory addresses to ensure pair of particles are only checked once per step
+						if (p2 > p1) {
+//							fprintf(stdout, "\tCheck if %d collides with %d\n", p1->id, p2->id);
 							findcollision(p1, p2);
+						}
 						p2 = p2->next;
 					}
 #ifdef DIM_3D
 				}
 #endif
+			}
+		}
 	}
 }
 
@@ -627,7 +658,7 @@ void findallcollisions() // All collisions of all particle pairs
  ** as one of the pair is processed.
  **************************************************/
 void findcollisioncell(particle *p1, int type) {
-	int dx, dy, dz, ccx, ccy, ccz;
+	int dx, dy, ccx, ccy;
 	i_vector cell = p1->cell;
 	particle *p2;
 
@@ -636,6 +667,7 @@ void findcollisioncell(particle *p1, int type) {
 	int ymin = cell.y - 1;
 	int ymax = cell.y + 1;
 #ifdef DIM_3D
+	int dz, ccz;
 	int zmin = cell.z - 1;
 	int zmax = cell.z + 1;
 #endif
@@ -715,7 +747,6 @@ void collision(event *ev) {
 	move(p2);
 
 	double r = r1 + r2;
-	double rinv = 1.0 / r;
 	f_vector dr = v_subtraction(&p1->pos, &p2->pos);
 
 	if (p1->nearboxedge) {
@@ -734,6 +765,8 @@ void collision(event *ev) {
 			dr.z += zsize;
 #endif
 	}
+
+	double rinv = 1.0 / r;
 	v_scalar_product(&dr, rinv);
 
 	f_vector dvel = v_subtraction(&p1->vel, &p2->vel); // relative velocity
@@ -1041,6 +1074,8 @@ void createevent(double time, particle *p1, particle *p2, int type) {
 	newevent->p1 = p1;
 	newevent->eventtype = type;
 
+//	fprintf(stdout, "Create event of type %s at time %f and position %d\n", event_type_to_str(type), time, nempty);
+
 	if (type == COLLISION)
 	{
 		newevent->p2 = p2;
@@ -1189,7 +1224,7 @@ void dump_particles() {
 	static double timelast = 0;
 	int i;
 	particle *p;
-	FILE *vel_file, *pos_file;
+	FILE *vel_file, *pos_file, *dbg_file;
 
 	double en = 0;
 	for (i = 0; i < N; i++) {
@@ -1223,10 +1258,12 @@ void dump_particles() {
 			first = 0;
 			pos_file = fopen(pos_file_path, "wb");
 			vel_file = fopen(vel_file_path, "wb");
+			dbg_file = fopen(dbg_file_path, "wb");
 		}
 		else {
 			pos_file = fopen(pos_file_path, "ab");
 			vel_file = fopen(vel_file_path, "ab");
+			dbg_file = fopen(dbg_file_path, "ab");
 		}
  //		fprintf(file, "%d\n%.12lf %.12lf %.12lf\n%.12lf\n", (int)N, xsize, ysize, zsize, temperature);
 		for (i = 0; i < N; i++) {
@@ -1246,10 +1283,13 @@ void dump_particles() {
 			data[0] = p->pos.x;
 			data[1] = p->pos.y;
 			fwrite(data, sizeof(double), 2, pos_file);
+			uint16_t id[] = {p->id};
+			fwrite(id, sizeof(uint16_t), 1, dbg_file);
 #endif
 		}
 		fclose(vel_file);
 		fclose(pos_file);
+		fclose(dbg_file);
 	}
 
 	counter++;

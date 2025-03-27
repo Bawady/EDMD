@@ -97,8 +97,8 @@ if __name__ == "__main__":
 
 		sim_cfg_yml = sim_out_p / "config.yml"
 
-#		edmd_simulator_p = pathlib.Path(f"../Cell/{'2d' if cfg['setup']['dimensions'] == 2 else '3d'}")
-		edmd_simulator_p = pathlib.Path("../Cell/3d")
+		edmd_simulator_p = pathlib.Path(f"../Cell/{'2d' if cfg['setup']['dimensions'] == 2 else '3d'}")
+#		edmd_simulator_p = pathlib.Path("../Cell/3d")
 
 		rel_init_file = os.path.relpath(init_file_p, edmd_simulator_p.parent)
 		rel_out_dir = os.path.relpath(sim_out_p, edmd_simulator_p.parent)

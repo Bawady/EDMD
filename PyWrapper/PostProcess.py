@@ -29,7 +29,7 @@ current_index = -1
 
 
 if __name__ == '__main__':
-	default_dump_dir = "out/single_spec_2d_units/27_03_12_39_13"
+	default_dump_dir = "out/single_spec_2d_units/27_03_21_21_39"
 	dump_dir = sys.argv[1] if len(sys.argv) > 1 else default_dump_dir
 	dump_dir_p = pathlib.Path(dump_dir)
 
@@ -78,7 +78,7 @@ if __name__ == '__main__':
 	iteration = 0
 	pos_scale = dim(1, "bohr").magnitude
 	vel_scale = dim(1, "m/s").magnitude
-	dims = 3#cfg["setup"]["dimensions"]
+	dims = cfg["setup"]["dimensions"]
 
 	#	with open(dump_dir_p / "particle_dump.csv", "r") as f:
 #		for l in iter(mmapped_file.readline, b""):

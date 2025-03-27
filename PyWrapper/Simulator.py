@@ -151,7 +151,8 @@ class MicroSimulator:
 			sim_size = non_dim(self.tree.size)
 			if len(self.dims) == 2:
 				depth = non_dim(2*self.species['A'].radius)
-				f.write(f"{sim_size} {sim_size} {depth}\n")
+#				f.write(f"{sim_size} {sim_size} {depth}\n")
+				f.write(f"{sim_size} {sim_size}\n")
 			else:
 				f.write(f"{sim_size} {sim_size} {sim_size}\n")
 			for particle in self.tree:
@@ -161,6 +162,7 @@ class MicroSimulator:
 				radius = non_dim(particle.species.radius)
 				if len(self.dims) == 2:
 					# placed in middle of z axis and no velocity in that direction
-					f.write(f"{species} {' '.join(map(str, pos))} {depth / 2} {' '.join(map(str, vel))} {0.0} {radius}\n")
+#					f.write(f"{species} {' '.join(map(str, pos))} {depth / 2} {' '.join(map(str, vel))} {0.0} {radius}\n")
+					f.write(f"{species} {' '.join(map(str, pos))} {' '.join(map(str, vel))} {radius}\n")
 				else:
 					f.write(f"{species} {' '.join(map(str, pos))} {' '.join(map(str, vel))} {radius}\n")
