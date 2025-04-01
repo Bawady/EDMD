@@ -109,7 +109,7 @@ class MicroSimulator:
 			mid_coords.append(np.random.rand() * (dimensions[d] - 2.2 * species.radius) + 1.1 * species.radius)
 
 		# Scale max vel given for unit mass to species' particle mass
-		v_mag = np.random.rand() * max_speed * math.sqrt(Q(1, unit(species.mass)) / species.mass)
+		v_mag = np.random.rand() * max_speed
 
 		# Random initial velocity vector
 		if len(mag(dimensions)) == 2:
