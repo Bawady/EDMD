@@ -22,7 +22,7 @@ DRAW_VEL_LINES : bool = True
 
 
 if __name__ == '__main__':
-    default_dump_dir = "out/single_spec_2d_units/27_03_14_22_04"
+    default_dump_dir = "out/neon_2d_units/28_03_09_42_09"
     dump_dir = sys.argv[1] if len(sys.argv) > 1 else default_dump_dir
     dump_dir_p = pathlib.Path(dump_dir)
 
@@ -48,14 +48,14 @@ if __name__ == '__main__':
     for s in cfg["species"]:
         particle_cnt += cfg["species"][s]["quantity"]
 
-    sim_size = mag(non_dim(QParse(cfg["setup"]["size"])))
     max_iterations = math.ceil(mag(QParse(cfg["setup"]["max_sim_time"]) / QParse(cfg["setup"]["dump_interval"]))) + 2
 
     print(f"Loading particle data")
     i = 0
     iteration = 0
-    screen_scale = 1000.0 / sim_size
     pos_scale = dim(1, "bohr").magnitude
+    sim_size = mag(non_dim(QParse(cfg["setup"]["size"]))) * pos_scale
+    screen_scale = 1000.0 / sim_size
     vel_scale = dim(1, "bohr/s").magnitude
     dims = cfg["setup"]["dimensions"]
 
@@ -73,11 +73,11 @@ if __name__ == '__main__':
     # Initialize PyGame
     pygame.init()
 
-    WIDTH, HEIGHT = sim_size * pos_scale * screen_scale, sim_size * pos_scale * screen_scale # Window size
+    WIDTH, HEIGHT = sim_size * screen_scale, sim_size * screen_scale # Window size
     BACKGROUND_COLOR = (0, 0, 0)  # Black background
     PARTICLE_COLOR = (255, 0, 0)  # Red particles
 
-    particle_radius = QParse(cfg["species"]["A"]["radius"]).magnitude * screen_scale
+    particle_radius = mag(non_dim(QParse(cfg["species"]["A"]["radius"]))) * screen_scale * pos_scale
 
     # Create window
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
