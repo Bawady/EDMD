@@ -43,9 +43,14 @@ def warning(msg: str):
 	log_file.write(f"WARNING: {msg}\n")
 	print(msg)
 
+def flush_log():
+	if log_file is not None:
+		log_file.flush()
+		os.fsync(log_file.fileno())
+
 
 if __name__ == "__main__":
-	default_yml = "single_spec_2d_units.yml"
+	default_yml = "neon_2d_units.yml"
 	cfg_ymls = sys.argv[1:] if len(sys.argv) > 1 else [default_yml]
 
 	set_conversion_mode(ConversionMode.DIM)
@@ -103,6 +108,7 @@ if __name__ == "__main__":
 		rel_init_file = os.path.relpath(init_file_p, edmd_simulator_p.parent)
 		rel_out_dir = os.path.relpath(sim_out_p, edmd_simulator_p.parent)
 		detail(f"Simulation call: ./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_dir} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}")
+		flush_log()
 		sim_exit_result = subprocess.run(f"./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_dir} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}",
 																	 shell=True, capture_output=True, text=True)
 
