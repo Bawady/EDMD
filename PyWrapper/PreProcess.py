@@ -50,9 +50,9 @@ def flush_log():
 
 
 if __name__ == "__main__":
-	yml = "neon_2d_units.yml"
-	yml = sys.argv[2] if len(sys.argv) > 1 else yml
-	out_p = pathlib.Path(sys.argv[3]) if len(sys.argv) > 2 else pathlib.Path("/data/out")
+	yml = "neon_2d_units_lbm_cfg.yml"
+	yml = sys.argv[1] if len(sys.argv) > 1 else yml
+	out_p = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else pathlib.Path("/data/out")
 
 	set_conversion_mode(ConversionMode.DIM)
 	Constants.prepare_constants()
@@ -102,7 +102,6 @@ if __name__ == "__main__":
 	sim_cfg_yml = sim_out_p / "config.yml"
 
 	edmd_simulator_p = pathlib.Path(f"../Cell/{'2d' if cfg['setup']['dimensions'] == 2 else '3d'}")
-	edmd_simulator_p = pathlib.Path("../Cell/3d")
 
 	rel_init_file = os.path.relpath(init_file_p, edmd_simulator_p.parent)
 	rel_out_dir = os.path.relpath(sim_out_p, edmd_simulator_p.parent)

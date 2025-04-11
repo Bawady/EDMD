@@ -1,0 +1,16 @@
+description: Accompanying MD simulation for the SmallNeon LBM
+
+setup:
+  seed: 42
+  dimensions: 2
+  size: 300 nm
+  max_speed: 1000 m/s
+  dump_interval: 1 ns
+  max_sim_time: 1 us
+
+species:
+  - name: A
+    mass: 20.180 u
+    radius: 154 pm
+    color: 0xFF0000
+    quantity: 7500

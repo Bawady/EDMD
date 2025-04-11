@@ -134,16 +134,34 @@ class MicroSimulator:
 		"""
 		# sort by species radius in order to start ran init with the biggest ones as they are hardest to fit
 		info_sorted = dict(sorted(quantities.items(), key=lambda item: self.species[item[0]].radius, reverse=True))
+		rng = np.random.default_rng(seed=self.seed)
 
+		reject = 0
+		sampled = 0
+		circled = 0
 		for _, key in enumerate(info_sorted):
 			species = self.species.get(key)
 			i = 0
+			r = Q(360, "nm")
+			cmid = Q(np.array([1.74, 1.74]), "um")
 			while i < quantities[key]:
 				particle = self._urandom_speed_particle(species, max_speed, self.dims)
+				sampled += 1
+
+				d = np.linalg.norm(particle.pos - cmid)
+				if d > r:
+					coinflip = rng.random()
+					if coinflip < 0.5:
+						reject += 1
+						continue
+				else:
+					circled += 1
+
 				if not self.tree.does_collide(particle):
 					self.tree.add_particle(particle)
 					i += 1
 		self.tree.redistribute()
+		print(f"{sampled=}, {reject=}, {circled=}")
 
 	def export_particles(self, file: str | PathLike) -> None:
 		with open(file, "w") as f:
