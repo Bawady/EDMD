@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
 import csv
+from copy import copy
+
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
@@ -53,9 +55,9 @@ def track_migrations(ppos : np.ndarray, ids : np.ndarray, size : float = 100, st
 	}
 
 	for t in range(len(ids) // step_interval - 1):
-		pos = ppos[t]
-		id = ids[t]
-		pos_nxt = ppos[t * step_interval]
+		pos = ppos[t * step_interval]
+		id = ids[t * step_interval]
+		pos_nxt = ppos[(t+1) * step_interval]
 		id_nxt = ids[(t+1) * step_interval]
 
 		current_positions = {pid: determine_region(pos, size) for pos, pid in zip(pos, id)}
@@ -108,7 +110,7 @@ def plot_migrations(migrations_per_step, size):
 
 
 if __name__ == "__main__":
-	default_dump_dir = "out/neon_2d_units/28_03_10_39_40"
+	default_dump_dir = "/data/out/neon_2d_units/03_04_15_03_26"
 	dump_dir = sys.argv[1] if len(sys.argv) > 1 else default_dump_dir
 	dump_dir_p = pathlib.Path(dump_dir)
 
@@ -136,22 +138,99 @@ if __name__ == "__main__":
 
 	max_iterations = math.ceil(mag(QParse(cfg["setup"]["max_sim_time"]) / QParse(cfg["setup"]["dump_interval"]))) + 2
 
-	tau_lbm = Q(10, "ns")
-	step_interval = int(mag(tau_lbm / QParse(cfg["setup"]["dump_interval"])))
+	dt_lbm = Q(10, "ns")
+	tau_lbm = Q(95, "ns")
+	bgk_relax = mag(dt_lbm / tau_lbm)
+	bgk_relax_n = mag(tau_lbm / dt_lbm)
+	step_interval = int(mag(dt_lbm / QParse(cfg["setup"]["dump_interval"])))
 
 	print(f"Loading particle data")
 	i = 0
 	iteration = 0
 	pos_scale = dim(1, "bohr").magnitude
+	vel_scale = dim(1, "m/s").magnitude
 	sim_size = mag(non_dim(QParse(cfg["setup"]["size"]))) * pos_scale
 	dims = cfg["setup"]["dimensions"]
 
-	print("Loading particle velocities")
+	print("Loading particle positions")
 	ppos = np.fromfile(dump_dir_p / "particle_positions.bin", dtype=np.float64)
 	ppos = ppos.reshape(-1, particle_cnt, dims) * pos_scale
 
+	print("Loading particle velocities")
+	pvels = np.fromfile(dump_dir_p / "particle_velocities.bin", dtype=np.float64)
+	pvels = ppos.reshape(-1, particle_cnt, dims) * pos_scale
+
+	print("Loading particle ids")
 	pids = np.fromfile(dump_dir_p / "dbg.bin", dtype=np.uint16)
 	pids = pids.reshape(-1, particle_cnt)
 
-	migrations_per_step = track_migrations(ppos, pids, size=sim_size, step_interval=step_interval)
-	plot_migrations(migrations_per_step, sim_size)
+	f_store = np.zeros((9, len(pids) // step_interval - 2))
+	j = 0
+
+	f_0_old = None
+	for t in range(len(pids) // step_interval - 2):
+		pos = ppos[t * step_interval]
+		ids = pids[t * step_interval]
+		cells = 3 * pos // sim_size
+
+		pos_nxt = ppos[(t+1) * step_interval]
+		ids_nxt = pids[(t+1) * step_interval]
+		cells_nxt = 3 * pos_nxt // sim_size
+
+		pos_nxt_nxt = ppos[(t+2) * step_interval]
+		ids_nxt_nxt = pids[(t+2) * step_interval]
+		cells_nxt_nxt = 3 * (pos_nxt_nxt) // sim_size
+
+		next_11 = {pid: cell for cell, pid in zip(cells_nxt, ids_nxt) if cell[0] == 1 and cell[1] == 1}
+		next_11_dt = {pid: cell for cell, pid in zip(cells_nxt_nxt, ids_nxt_nxt) if cell[0] == 1 and cell[1] == 1}
+
+		fs_t = {
+			(0, 0): 0, (1, 0): 0, (2, 0): 0,
+			(0, 1): 0, (1, 1): 0, (2, 1): 0,
+			(0, 2): 0, (1, 2): 0, (2, 2): 0
+		}
+
+		fs_t_dt = {
+			(0, 0): 0, (1, 0): 0, (2, 0): 0,
+			(0, 1): 0, (1, 1): 0, (2, 1): 0,
+			(0, 2): 0, (1, 2): 0, (2, 2): 0
+		}
+
+		rhos_t = {
+			(0, 0): 0, (1, 0): 0, (2, 0): 0,
+			(0, 1): 0, (1, 1): 0, (2, 1): 0,
+			(0, 2): 0, (1, 2): 0, (2, 2): 0
+		}
+
+		for pid, cell_arr in enumerate(cells):
+			cell = (cell_arr[0], cell_arr[1])
+			if pid in next_11:
+				fs_t[cell] += 1
+			rhos_t[cell] += 1
+
+		for pid, cell_arr in enumerate(cells_nxt):
+			cell = (cell_arr[0], cell_arr[1])
+			if pid in next_11_dt:
+				fs_t_dt[cell] += 1
+
+		for i, cell in enumerate(fs_t):
+			f_store[i, j] = fs_t[cell]
+#			f_store[i][j] = 1 / rhos_t[cell] * (fs_t[cell] + bgk_relax_n * (fs_t_dt[cell] - fs_t[cell]))
+		j += 1
+
+labels = ["TL", "T", "TR", "L", "Stay", "R", "BL", "B", "BR"]
+
+fig, axes = plt.subplots(3, 3, figsize=(8, 8))
+x_data = np.arange(len(pids) // step_interval - 2)
+for idx, ax in enumerate(axes.flat):
+	ax.plot(x_data, f_store[idx, :], 'bo-', label=f"Series {idx+1}")  # Blue line with circles
+	ax.set_title(labels[idx])
+	ax.set_xlabel("Time [dt]")
+	ax.set_ylabel("# particles")
+	ax.grid(True)
+
+plt.tight_layout()
+plt.show()
+
+#	migrations_per_step = track_migrations(ppos, pids, size=sim_size, step_interval=step_interval)
+#	plot_migrations(migrations_per_step, sim_size)
