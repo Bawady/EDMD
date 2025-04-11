@@ -300,7 +300,7 @@ void loadparticles() {
 	mygetline(buffer, file);
 	int ftmp = sscanf(buffer, "%d", &particle_cnt);
 	if (ftmp != 1) {
-		fprintf(stderr, "Read error (n or box)\n");
+		fprintf(stderr, "Particle count read error\n");
 		exit(EXIT_FAILURE);
 	}
 	mygetline(buffer, file);
@@ -311,7 +311,7 @@ void loadparticles() {
 	ftmp = sscanf(buffer, "%lf %lf\n", &xsize, &ysize);
 	if (ftmp != 2) {
 #endif
-		fprintf(stderr, "Read error (n or box)\n");
+		fprintf(stderr, "Sim dimension read error (read %d tokens) %lf %lf\n", ftmp, xsize, ysize);
 		exit(EXIT_FAILURE);
 	}
 
