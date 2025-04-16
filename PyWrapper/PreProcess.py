@@ -98,7 +98,7 @@ if __name__ == "__main__":
 
 	info("Running EDMD simulation")
 
-	time_transform_factor = 1 / chara_t
+	time_transform_factor = 1 / non_dim(chara_t)
 	max_sim_time = sim.max_sim_time * time_transform_factor
 	dump_interval = sim.dump_interval * time_transform_factor
 
