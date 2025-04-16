@@ -98,8 +98,9 @@ if __name__ == "__main__":
 
 	info("Running EDMD simulation")
 
-	max_sim_time = non_dim(sim.max_sim_time)
-	dump_interval = non_dim(sim.dump_interval)
+	time_transform_factor = 1 / chara_t
+	max_sim_time = sim.max_sim_time * time_transform_factor
+	dump_interval = sim.dump_interval * time_transform_factor
 
 	with open(yml) as f:
 		cfg = yaml.safe_load(f)
