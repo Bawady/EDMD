@@ -28,20 +28,24 @@ def close_log():
 		log_file.close()
 		log_file = None
 
+def log(msg: str):
+	now = datetime.now()
+	log_file.write(f"{now}: {msg}\n")
+
 def info(msg: str):
-	log_file.write(f"{msg}\n")
+	log(msg)
 	print(msg)
 
 def detail(msg: str):
-	log_file.write(f"{msg}\n")
+	log(msg)
 
 def error(msg: str):
-	log_file.write(f"ERROR: {msg}\n")
-	print(msg)
+	log(f"ERROR: {msg}")
+	print(f"ERROR: {msg}")
 
 def warning(msg: str):
-	log_file.write(f"WARNING: {msg}\n")
-	print(msg)
+	log(f"WARNING: {msg}")
+	print(f"WARNING: {msg}")
 
 def flush_log():
 	if log_file is not None:
@@ -63,19 +67,29 @@ if __name__ == "__main__":
 
 	init_log(sim_out_p / "log")
 
+	chara_x, chara_t, chara_m = Q(1, "nm"), Q(1, "ns"), Q(1e6, "u")
+	characteristics(chara_x, chara_t, chara_m, Constants.KB)
+	set_conversion_mode(ConversionMode.NON_DIM)
 	info(f"Loading simulation configuration {yml}")
 	sim = MicroSimulator.from_yaml(yml)
+
+	set_conversion_mode(ConversionMode.DIM)
 	max_r = Q(0, "m")
 	for spec in sim.species:
-		if max_r < sim.species[spec].radius:
-			max_r = sim.species[spec].radius
+		if max_r < Q(sim.species[spec].radius, unit(chara_x)):
+			max_r = Q(sim.species[spec].radius, unit(chara_x))
 			biggest_spec = spec
+	set_conversion_mode(ConversionMode.NON_DIM)
+
 	temperature = sim.tree.species_temperature(biggest_spec)
-	m = sim.species[biggest_spec].mass
+	set_conversion_mode(ConversionMode.DIM)
+	temperature = (temperature * chara_m * (chara_x / chara_t)**2).to_base_units()
+	m = sim.species[biggest_spec].mass * chara_m
 	sigma = 2 * max_r
-	tau = np.sqrt(m * sigma**2 / (Constants.KB * temperature))
+	tau = (np.sqrt(m * sigma**2 / (Constants.KB * temperature))).to_base_units()
 	info(f"Simulation characteristics: m={m} sigma={sigma} tau={tau.to('ps')}")
-	characteristics(sigma, sim.species[biggest_spec].mass, tau, Constants.KB)
+
+	transform_characteristics(sigma, m, tau, Constants.KB)
 	info(f"Initial temperature: {temperature}")
 
 	set_conversion_mode(ConversionMode.NON_DIM)

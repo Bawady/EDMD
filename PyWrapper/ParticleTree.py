@@ -133,7 +133,7 @@ class ParticleTree(Sized, Iterable):
 		"""Returns the total energy of particles of the given species contained in this tree as well as the
 			 amount of such particles (allowing to compute the average energy as well)
 		"""
-		energy = Q(0, "J")
+		energy = 0
 		cnt = 0
 		for p in self.particles:
 			if p.species.name == species_name:

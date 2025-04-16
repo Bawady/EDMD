@@ -154,30 +154,34 @@ class MicroSimulator:
 					if coinflip < 0.5:
 						reject += 1
 						continue
+					circle = 0
 				else:
-					circled += 1
+					circle = 1
 
 				if not self.tree.does_collide(particle):
 					self.tree.add_particle(particle)
+					circled += circle
 					i += 1
 		self.tree.redistribute()
 		print(f"{sampled=}, {reject=}, {circled=}")
 
 	def export_particles(self, file: str | PathLike) -> None:
+		pos_transform_factor = 1 / Q(1, "nm")
+		vel_transform_factor = 1 / Q(1, "m/s")
 		with open(file, "w") as f:
 			f.write(f"{len(self.tree)}\n")
-			sim_size = non_dim(self.tree.size)
+			sim_size = self.tree.size * pos_transform_factor
 			if len(self.dims) == 2:
-				depth = non_dim(2*self.species['A'].radius)
+#				depth = non_dim(2*self.species['A'].radius)
 #				f.write(f"{sim_size} {sim_size} {depth}\n")
 				f.write(f"{sim_size} {sim_size}\n")
 			else:
 				f.write(f"{sim_size} {sim_size} {sim_size}\n")
 			for particle in self.tree:
 				species = particle.species.name
-				pos = non_dim(particle.pos)
-				vel = non_dim(particle.vel)
-				radius = non_dim(particle.species.radius)
+				pos = particle.pos * pos_transform_factor
+				vel = particle.vel * vel_transform_factor
+				radius = particle.species.radius * pos_transform_factor
 				if len(self.dims) == 2:
 					# placed in middle of z axis and no velocity in that direction
 #					f.write(f"{species} {' '.join(map(str, pos))} {depth / 2} {' '.join(map(str, vel))} {0.0} {radius}\n")

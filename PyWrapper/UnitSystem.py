@@ -102,6 +102,31 @@ def set_conversion_mode(mode: ConversionMode) -> None:
     mode_user_override = True
 
 
+def transform(q : float | np.ndarray, base_unit : str) -> tuple[float | np.ndarray]:
+    x = Q(1, base_unit)
+    return q / x
+
+
+def transform_characteristics(*quantities: pint.Quantity) -> tuple[pint.Quantity | float | np.ndarray, ...]:
+    global chara_qs, conv_mode
+    if conv_mode != ConversionMode.DIM:
+        warnings.warn("Tranforming characteristic quantities with a conversion mode != DIM not supported")
+        return tuple([q for q in quantities])
+    qs = {}
+    for q in quantities:
+        qs[unit(q.to_base_units())] = non_dim(q)
+
+    new_charas = []
+    for q in chara_qs:
+        u = unit(q.to_base_units())
+        new_charas.append(q / qs[u])
+
+    return characteristics(*new_charas)
+
+
+# TODO: dim must now respect transformation changes (or does it?), or mybe new transform function. Need to export the init data correctly though
+
+
 def characteristics(*quantities: pint.Quantity) -> tuple[pint.Quantity | float | np.ndarray, ...]:
     global chara_qs, conv_mode
     if conv_mode != ConversionMode.DIM:

@@ -6,11 +6,11 @@ setup:
   size: 3.48 um
   max_speed: 1006 m/s # this is NOT sqrt(v_avg^2) but rather sqrt(3*v_avg^2) as the expected value of a var squared is not the squared one of the var itself
   dump_interval: 1 ns
-  max_sim_time: 1 us
+  max_sim_time: 100 ns
 
 species:
   - name: A
     mass: 20.180 u
-    radius: 2 nm
+    radius: 154 pm
     color: 0xFF0000
-    quantity: 5000
+    quantity: 1000000
