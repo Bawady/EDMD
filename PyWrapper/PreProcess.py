@@ -120,7 +120,7 @@ if __name__ == "__main__":
 
 	rel_init_file = os.path.relpath(init_file_p, edmd_simulator_p.parent)
 	rel_out_dir = os.path.relpath(sim_out_p, edmd_simulator_p.parent)
-	detail(f"Simulation call: ./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_dir} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}")
+	detail(f"Simulation call: ./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_dir} -m {max_sim_time} -i {dump_interval} -s {cfg['setup']['seed']}")
 	flush_log()
 	sim_exit_result = subprocess.run(f"./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_dir} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}",
 																 shell=True, capture_output=True, text=True)
