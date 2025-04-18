@@ -8,6 +8,7 @@ import pathlib
 import yaml
 
 from datetime import datetime
+from joblib import Parallel, delayed
 
 from Simulator import MicroSimulator
 from UnitSystem import *
@@ -53,25 +54,26 @@ def flush_log():
 		os.fsync(log_file.fileno())
 
 
-if __name__ == "__main__":
-	yml = "neon_2d_units_lbm_cfg.yml"
-	yml = sys.argv[1] if len(sys.argv) > 1 else yml
-	out_p = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else pathlib.Path("/data/out")
-
+def run_simulation(cfg_yml: str | pathlib.Path, out_p: str | pathlib.Path, seed: int):
 	set_conversion_mode(ConversionMode.DIM)
 	Constants.prepare_constants()
 
-	sim_start = "{date:%d_%m_%H_%M_%S}".format(date=datetime.now())
-	sim_out_p = out_p / pathlib.Path(yml).stem / sim_start
-	sim_out_p.mkdir(parents=True, exist_ok=True)
+	sim_out_p = out_p
+	if seed is not None:
+		sim_out_p = sim_out_p / str(seed)
+	sim_out_p.mkdir()
 
 	init_log(sim_out_p / "log")
 
 	chara_x, chara_t, chara_m = Q(1, "nm"), Q(1, "ns"), Q(1e6, "u")
 	characteristics(chara_x, chara_t, chara_m, Constants.KB)
 	set_conversion_mode(ConversionMode.NON_DIM)
-	info(f"Loading simulation configuration {yml}")
-	sim = MicroSimulator.from_yaml(yml)
+	info(f"Loading simulation configuration {cfg_yml}")
+
+	if seed is not None:
+		sim = MicroSimulator.from_yaml(cfg_yml, seed=seed)
+	else:
+		sim = MicroSimulator.from_yaml(cfg_yml)
 
 	set_conversion_mode(ConversionMode.DIM)
 	max_r = Q(0, "m")
@@ -102,7 +104,7 @@ if __name__ == "__main__":
 	max_sim_time = sim.max_sim_time * time_transform_factor
 	dump_interval = sim.dump_interval * time_transform_factor
 
-	with open(yml) as f:
+	with open(cfg_yml) as f:
 		cfg = yaml.safe_load(f)
 		# add sim params that got computed depending on the config for documentation / reproducibility
 		cfg["sim"] = {}
@@ -114,8 +116,6 @@ if __name__ == "__main__":
 		with open(sim_out_p / "config.yml", "w") as out_f:
 			yaml.dump(cfg, out_f, default_flow_style=False)
 
-	sim_cfg_yml = sim_out_p / "config.yml"
-
 	edmd_simulator_p = pathlib.Path(f"../Cell/{'2d' if cfg['setup']['dimensions'] == 2 else '3d'}")
 
 	rel_init_file = os.path.relpath(init_file_p, edmd_simulator_p.parent)
@@ -123,7 +123,7 @@ if __name__ == "__main__":
 	detail(f"Simulation call: ./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_dir} -m {max_sim_time} -i {dump_interval} -s {cfg['setup']['seed']}")
 	flush_log()
 	sim_exit_result = subprocess.run(f"./{edmd_simulator_p} -f {rel_init_file} -o {rel_out_dir} -m {max_sim_time}, -i {dump_interval} -s {cfg['setup']['seed']}",
-																 shell=True, capture_output=True, text=True)
+																	 shell=True, capture_output=True, text=True)
 
 	detail(sim_exit_result.stdout)
 	if sim_exit_result.returncode != 0:
@@ -133,3 +133,17 @@ if __name__ == "__main__":
 	info("EDMD simulation succeeded")
 
 	close_log()
+
+
+if __name__ == "__main__":
+	yml = "neon_2d_units_lbm_cfg.yml"
+	yml = sys.argv[1] if len(sys.argv) > 1 else yml
+	out_p = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else pathlib.Path("/data/out")
+
+	sim_start = "{date:%d_%m_%H_%M_%S}".format(date=datetime.now())
+	sim_out_p = out_p / pathlib.Path(yml).stem / sim_start
+	sim_out_p.mkdir(parents=True, exist_ok=True)
+
+	rng = np.random.default_rng(seed=42)
+	seeds = rng.integers(0, 2**32-1, 16)
+	Parallel(n_jobs=len(seeds), backend="multiprocessing")(delayed(run_simulation)(yml, sim_out_p, seed) for seed in seeds)

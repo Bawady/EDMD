@@ -42,11 +42,13 @@ class MicroSimulator:
 
 
 	@classmethod
-	def from_yaml(cls, yaml_file: pathlib.Path | str):
+	def from_yaml(cls, yaml_file: pathlib.Path | str, **params) -> "MicroSimulator":
 		"""Creates MicroSimulator based on configuration in 'yaml_file' (examples are in the sims folder)."""
 		config = yaml.safe_load(open(yaml_file))
 
 		setup = config["setup"]
+		for p in params:
+			setup[p] = params[p]
 		try:
 			# strictly required parameters
 			size = QParse(setup.pop("size"))

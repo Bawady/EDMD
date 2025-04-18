@@ -3,6 +3,7 @@ cycler==0.12.1
 flexcache==0.3
 flexparser==0.4
 fonttools==4.56.0
+joblib==1.4.2
 kiwisolver==1.4.8
 matplotlib==3.10.1
 numpy==2.2.4
@@ -16,4 +17,6 @@ python-dateutil==2.9.0.post0
 PyYAML==6.0.2
 scipy==1.15.2
 six==1.17.0
+snakeviz==2.2.2
+tornado==6.4.2
 typing_extensions==4.13.0
