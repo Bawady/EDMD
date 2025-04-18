@@ -146,4 +146,4 @@ if __name__ == "__main__":
 
 	rng = np.random.default_rng(seed=42)
 	seeds = rng.integers(0, 2**32-1, 16)
-	Parallel(n_jobs=len(seeds), backend="multiprocessing")(delayed(run_simulation)(yml, sim_out_p, seed) for seed in seeds)
+	Parallel(n_jobs=len(seeds), backend="multiprocessing")(delayed(run_simulation)(yml, sim_out_p, int(seed)) for seed in seeds)
