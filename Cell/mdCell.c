@@ -26,8 +26,8 @@ char input_filename[MAX_FILENAME_LENGTH + 1] = ""; // File containing an input c
 char output_dir[MAX_FILENAME_LENGTH + 2]; // Location for the output dumps
 const char *vel_output_filename = "particle_velocities.bin";
 const char *pos_output_filename = "particle_positions.bin";
-const char *dbg_filename = "dbg.bin";
-char vel_file_path[2*MAX_FILENAME_LENGTH+1], pos_file_path[2*MAX_FILENAME_LENGTH+1], dbg_file_path[2*MAX_FILENAME_LENGTH+1];
+const char *pid_filename = "pid.bin";
+char vel_file_path[2*MAX_FILENAME_LENGTH+1], pos_file_path[2*MAX_FILENAME_LENGTH+1], pid_file_path[2*MAX_FILENAME_LENGTH+1];
 
 
 // Config. variables for the simulation's data structures and core algorithm(s)
@@ -116,8 +116,8 @@ void prepare_dump_file_paths(){
 	strncat(vel_file_path, vel_output_filename, MAX_FILENAME_LENGTH);
 	strncat(pos_file_path, pos_output_filename, MAX_FILENAME_LENGTH);
 
-	strncpy(dbg_file_path, output_dir, MAX_FILENAME_LENGTH+2);
-	strncat(dbg_file_path, dbg_filename, MAX_FILENAME_LENGTH);
+	strncpy(pid_file_path, output_dir, MAX_FILENAME_LENGTH+2);
+	strncat(pid_file_path, pid_filename, MAX_FILENAME_LENGTH);
 }
 
 void parse_arguments(int argc, char **argv) {
@@ -1224,7 +1224,7 @@ void dump_particles() {
 	static double timelast = 0;
 	int i;
 	particle *p;
-	FILE *vel_file, *pos_file, *dbg_file;
+	FILE *vel_file, *pos_file, *pid_file;
 
 	double en = 0;
 	for (i = 0; i < N; i++) {
@@ -1258,12 +1258,12 @@ void dump_particles() {
 			first = 0;
 			pos_file = fopen(pos_file_path, "wb");
 			vel_file = fopen(vel_file_path, "wb");
-			dbg_file = fopen(dbg_file_path, "wb");
+			pid_file = fopen(pid_file_path, "wb");
 		}
 		else {
 			pos_file = fopen(pos_file_path, "ab");
 			vel_file = fopen(vel_file_path, "ab");
-			dbg_file = fopen(dbg_file_path, "ab");
+			pid_file = fopen(pid_file_path, "ab");
 		}
  //		fprintf(file, "%d\n%.12lf %.12lf %.12lf\n%.12lf\n", (int)N, xsize, ysize, zsize, temperature);
 		for (i = 0; i < N; i++) {
@@ -1284,12 +1284,12 @@ void dump_particles() {
 			data[1] = p->pos.y;
 			fwrite(data, sizeof(double), 2, pos_file);
 			uint16_t id[] = {p->id};
-			fwrite(id, sizeof(uint16_t), 1, dbg_file);
+			fwrite(id, sizeof(uint16_t), 1, pid_file);
 #endif
 		}
 		fclose(vel_file);
 		fclose(pos_file);
-		fclose(dbg_file);
+		fclose(pid_file);
 	}
 
 	counter++;
