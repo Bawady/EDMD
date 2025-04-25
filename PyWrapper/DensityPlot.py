@@ -14,6 +14,9 @@ from UnitSystem import *
 from Constants import Constants
 
 
+ENSEMBLE = True
+
+
 def read_csv(filename, delimiter=';', size=100):
 	with open(filename, 'r') as file:
 		reader = csv.reader(file, delimiter=delimiter)
@@ -37,11 +40,17 @@ if __name__ == "__main__":
 	dump_dir = sys.argv[1] if len(sys.argv) > 1 else default_dump_dir
 	dump_dir_p = pathlib.Path(dump_dir)
 
+	dump_dirs_p : list[pathlib.Path] = []
+	if ENSEMBLE:
+		for sim_dump in pathlib.Path(dump_dir).iterdir():
+			if sim_dump.is_dir():
+				dump_dirs_p.append(sim_dump)
+
 	set_conversion_mode(ConversionMode.DIM)
 	Constants.prepare_constants()
 
 	cfg = {}
-	with open(dump_dir_p / "config.yml", "r") as cfg_yml:
+	with open(dump_dirs_p[0] / "config.yml", "r") as cfg_yml:
 		cfg = yaml.safe_load(cfg_yml)
 		species = cfg["species"]
 		spec_dict = {}
@@ -68,8 +77,15 @@ if __name__ == "__main__":
 	dims = cfg["setup"]["dimensions"]
 
 	print("Loading particle positions")
-	ppos = np.fromfile(dump_dir_p / "particle_positions.bin", dtype=np.float64)
-	ppos = ppos.reshape(-1, particle_cnt, dims)
+
+	ppos = np.zeros((dump_count, particle_cnt, dims))
+	for dump_dir_p in dump_dirs_p:
+		print(f"Loading dump {dump_dir_p}")
+		dump = np.fromfile(dump_dir_p / "particle_positions.bin", dtype=np.float64)
+		dump = ppos.reshape(-1, particle_cnt, dims)
+		ppos += dump
+
+	ppos /= dump_count
 
 	density_plots = np.zeros((dump_count, grid_size, grid_size))
 	cached = np.zeros((dump_count), dtype=np.bool)
