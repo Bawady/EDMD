@@ -80,6 +80,34 @@ def track_migrations(ppos : np.ndarray, ids : np.ndarray, size : float = 100, st
 	return migrations_per_step
 
 
+def compute_migration_kernel(pos_t, pos_t1, size):
+	migration_counts = np.zeros((size**2, 9))
+	density = np.zeros(size**2)
+
+	deltas = (pos_t1 - pos_t).astype(np.int16)
+	deltas = np.clip(deltas, -1, 1)  # ensure movement is max one cell in each direction
+
+	for i in range(pos_t.shape[0]):
+		from_x, from_y = pos_t[i]
+		dx, dy = deltas[i]
+		to_x, to_y = (from_x + dx) % size, (from_y + dy) % size
+		cell_idx = int(to_x + to_y * size)
+		pop_idx = dx+1 + (dy+1) * 3
+		migration_counts[cell_idx][pop_idx] += 1
+		density[cell_idx] += 1
+
+	density = density[:,np.newaxis]
+	weights = np.zeros(9)
+	cnt = 0
+	for i in range(migration_counts.shape[0]):
+		if density[i] > 0:
+			cnt += 1
+			weights += migration_counts[i]
+
+	weights /= cnt
+	return weights[[4, 5, 1, 3, 7, 2, 0, 6, 8]]
+
+
 def compute_lattice_weigths(params: dict, sim_run_dir_p: pathlib.Path, out_dir_p):
 
 	print("Loading particle positions")
@@ -88,38 +116,27 @@ def compute_lattice_weigths(params: dict, sim_run_dir_p: pathlib.Path, out_dir_p
 
 	print("Loading particle ids")
 	pids = np.fromfile(sim_run_dir_p / "pid.bin", dtype=np.uint16)
-	pids = pids.reshape(-1, particle_cnt)
+	pids = pids.reshape(-1, params["particle_cnt"])
 
-	f_store = np.zeros((len(pids) // step_interval - 2, 9))
+	weights = np.zeros((len(pids) - 2, 9))
 
-	for t in range(len(pids) // params["step_interval"]- 2):
-		pos = ppos[t * params["step_interval"]]
-		ids = pids[t * params["step_interval"]]
-		cells = 3 * pos // params["sim_size"]
+	for t in range(len(pids) - 2):
+		pos = ppos[t]
+		ids = pids[t]
+		cells = np.trunc(pos)# // params["sim_size"]
 
-		pos_nxt = ppos[(t+1) * step_interval]
+		pos_nxt = ppos[t+1]
 #		ids_nxt = pids[(t+1) * step_interval]
-		cells_nxt = 3 * pos_nxt // params["sim_size"]
+		cells_nxt = np.trunc(pos_nxt)# // params["sim_size"]
+		weights_current_step = compute_migration_kernel(cells, cells_nxt, int(params["sim_size"]))
+		weights[t] = weights_current_step
 
-		currently_in_11 = {pid: cell for cell, pid in zip(cells, ids) if cell[0] == 1 and cell[1] == 1}
-
-		fs_t = {
-			(0, 0): 0, (1, 0): 0, (2, 0): 0,
-			(0, 1): 0, (1, 1): 0, (2, 1): 0,
-			(0, 2): 0, (1, 2): 0, (2, 2): 0
-		}
-
-		for pid in currently_in_11:
-			fs_t[cells_nxt[pid]] += 1
-
-		for i in fs_t.keys():
-			f_store[t][i[0] + i[1] * 3] = fs_t[i] / len(currently_in_11)
-
-	np.save(out_dir_p / f"{sim_run_dir_p.name}_weights.npy")
+	return np.mean(weights, axis=0)
+#	np.save(out_dir_p / f"{sim_run_dir_p.name}_weights.npy", weights)
 
 
 if __name__ == "__main__":
-	default_dump_dir = "ensemble"
+	default_dump_dir = "out/18_04_12_21_43"
 	dump_dir = sys.argv[1] if len(sys.argv) > 1 else default_dump_dir
 	dump_dir_p = pathlib.Path(dump_dir)
 
@@ -155,25 +172,25 @@ if __name__ == "__main__":
 
 	max_iterations = math.ceil(mag(QParse(cfg["setup"]["max_sim_time"]) / QParse(cfg["setup"]["dump_interval"]))) + 2
 
-	dt_lbm = Q(10, "ns")
-	tau_lbm = Q(95, "ns")
-	bgk_relax = mag(dt_lbm / tau_lbm)
-	bgk_relax_n = mag(tau_lbm / dt_lbm)
-	step_interval = int(mag(dt_lbm / QParse(cfg["setup"]["dump_interval"])))
-	pos_scale = dim(1, "bohr").magnitude
-	sim_size = mag(non_dim(QParse(cfg["setup"]["size"])))	 * pos_scale
+	dx_lbm = Q(10, "nm")
+	pos_scale = 1 / non_dim(dx_lbm)
+	sim_size = non_dim(QParse(cfg["setup"]["size"])) * pos_scale
 
 	sim_out_p = dump_dir_p / "weights"
 	sim_out_p.mkdir(parents=True, exist_ok=True)
 
 	params = {}
 	params["dims"] = cfg["setup"]["dimensions"]
-	params["pos_sale"] = pos_scale
-	params["sim_size"] = sim_size
+	params["pos_scale"] = pos_scale
+	params["sim_size"] = round(sim_size)
 	params["particle_cnt"] = particle_cnt
-	params["step_interval"] = step_interval
 
-	Parallel(n_jobs=len(sim_runs), backend="multiprocessing")(delayed(compute_lattice_weigths)(params, run, sim_out_p) for run in sim_runs)
+	weights = Parallel(n_jobs=len(sim_runs), backend="multiprocessing")(delayed(compute_lattice_weigths)(params, run, sim_out_p) for run in sim_runs)
+	avg_weights = np.zeros(9)
+	for w in weights:
+		avg_weights += w
+	avg_weights /= len(sim_runs)
+	print(avg_weights)
 
 
 	#def plot_migrations(migrations_per_step, size):
@@ -203,5 +220,5 @@ if __name__ == "__main__":
 	#
 	#	fig.canvas.mpl_connect("key_press_event", on_key)
 	#	update_plot()
-	plt.show(block=True)
+	# plt.show(block=True)
 
