@@ -11,6 +11,7 @@ import yaml
 import math
 
 from collections import defaultdict
+from joblib import Parallel, delayed
 
 sys.path.append("..")
 from UnitSystem import *
@@ -79,46 +80,62 @@ def track_migrations(ppos : np.ndarray, ids : np.ndarray, size : float = 100, st
 	return migrations_per_step
 
 
-def plot_migrations(migrations_per_step, size):
-	global step_idx
-	fig, ax = plt.subplots()
-	categories = ["TL", "T", "TR", "L", "Stay", "R", "BL", "B", "BR"]
+def compute_lattice_weigths(params: dict, sim_run_dir_p: pathlib.Path, out_dir_p):
 
-	def update_plot():
-		global step_idx
-		ax.clear()
-		counts = migrations_per_step[step_idx]
-		values = [counts.get(cat, 0) for cat in categories]
-		values = [v / sum(values) for v in values]
-		ax.bar(categories, values)
-		ax.set_title(f"Migrations from (1,1) - Step {step_idx * tau_lbm} -> {(step_idx+1) * tau_lbm}")
-		ax.set_ylabel("Particle Count")
-		plt.draw()
+	print("Loading particle positions")
+	ppos = np.fromfile(sim_run_dir_p / "particle_positions.bin", dtype=np.float64)
+	ppos = ppos.reshape(-1, params["particle_cnt"], params["dims"]) * params["pos_scale"]
 
-	def on_key(event):
-		global step_idx
-		if event.key == "right" and step_idx < len(migrations_per_step) - 1:
-			step_idx += 1
-			update_plot()
-		elif event.key == "left" and step_idx > 0:
-			step_idx -= 1
-			update_plot()
+	print("Loading particle ids")
+	pids = np.fromfile(sim_run_dir_p / "pid.bin", dtype=np.uint16)
+	pids = pids.reshape(-1, particle_cnt)
 
-	fig.canvas.mpl_connect("key_press_event", on_key)
-	update_plot()
-	plt.show(block=True)
+	f_store = np.zeros((len(pids) // step_interval - 2, 9))
+
+	for t in range(len(pids) // params["step_interval"]- 2):
+		pos = ppos[t * params["step_interval"]]
+		ids = pids[t * params["step_interval"]]
+		cells = 3 * pos // params["sim_size"]
+
+		pos_nxt = ppos[(t+1) * step_interval]
+#		ids_nxt = pids[(t+1) * step_interval]
+		cells_nxt = 3 * pos_nxt // params["sim_size"]
+
+		currently_in_11 = {pid: cell for cell, pid in zip(cells, ids) if cell[0] == 1 and cell[1] == 1}
+
+		fs_t = {
+			(0, 0): 0, (1, 0): 0, (2, 0): 0,
+			(0, 1): 0, (1, 1): 0, (2, 1): 0,
+			(0, 2): 0, (1, 2): 0, (2, 2): 0
+		}
+
+		for pid in currently_in_11:
+			fs_t[cells_nxt[pid]] += 1
+
+		for i in fs_t.keys():
+			f_store[t][i[0] + i[1] * 3] = fs_t[i] / len(currently_in_11)
+
+	np.save(out_dir_p / f"{sim_run_dir_p.name}_weights.npy")
 
 
 if __name__ == "__main__":
-	default_dump_dir = "/data/out/neon_2d_units/03_04_15_03_26"
+	default_dump_dir = "ensemble"
 	dump_dir = sys.argv[1] if len(sys.argv) > 1 else default_dump_dir
 	dump_dir_p = pathlib.Path(dump_dir)
 
 	set_conversion_mode(ConversionMode.DIM)
 	Constants.prepare_constants()
 
+	sim_runs = []
+	for sub_dir in dump_dir_p.iterdir():
+		if sub_dir.is_dir() and sub_dir.name.isdigit():
+			sim_runs.append(sub_dir)
+	if len(sim_runs) == 0:
+		sim_runs.append(dump_dir_p)
+
+
 	cfg = {}
-	with open(dump_dir_p / "config.yml", "r") as cfg_yml:
+	with open(sim_runs[0] / "config.yml", "r") as cfg_yml:
 		cfg = yaml.safe_load(cfg_yml)
 		species = cfg["species"]
 		spec_dict = {}
@@ -143,94 +160,48 @@ if __name__ == "__main__":
 	bgk_relax = mag(dt_lbm / tau_lbm)
 	bgk_relax_n = mag(tau_lbm / dt_lbm)
 	step_interval = int(mag(dt_lbm / QParse(cfg["setup"]["dump_interval"])))
-
-	print(f"Loading particle data")
-	i = 0
-	iteration = 0
 	pos_scale = dim(1, "bohr").magnitude
-	vel_scale = dim(1, "m/s").magnitude
-	sim_size = mag(non_dim(QParse(cfg["setup"]["size"]))) * pos_scale
-	dims = cfg["setup"]["dimensions"]
+	sim_size = mag(non_dim(QParse(cfg["setup"]["size"])))	 * pos_scale
 
-	print("Loading particle positions")
-	ppos = np.fromfile(dump_dir_p / "particle_positions.bin", dtype=np.float64)
-	ppos = ppos.reshape(-1, particle_cnt, dims) * pos_scale
+	sim_out_p = dump_dir_p / "weights"
+	sim_out_p.mkdir(parents=True, exist_ok=True)
 
-	print("Loading particle velocities")
-	pvels = np.fromfile(dump_dir_p / "particle_velocities.bin", dtype=np.float64)
-	pvels = ppos.reshape(-1, particle_cnt, dims) * pos_scale
+	params = {}
+	params["dims"] = cfg["setup"]["dimensions"]
+	params["pos_sale"] = pos_scale
+	params["sim_size"] = sim_size
+	params["particle_cnt"] = particle_cnt
+	params["step_interval"] = step_interval
 
-	print("Loading particle ids")
-	pids = np.fromfile(dump_dir_p / "dbg.bin", dtype=np.uint16)
-	pids = pids.reshape(-1, particle_cnt)
+	Parallel(n_jobs=len(sim_runs), backend="multiprocessing")(delayed(compute_lattice_weigths)(params, run, sim_out_p) for run in sim_runs)
 
-	f_store = np.zeros((9, len(pids) // step_interval - 2))
-	j = 0
 
-	f_0_old = None
-	for t in range(len(pids) // step_interval - 2):
-		pos = ppos[t * step_interval]
-		ids = pids[t * step_interval]
-		cells = 3 * pos // sim_size
+	#def plot_migrations(migrations_per_step, size):
+	#	global step_idx
+	#	fig, ax = plt.subplots()
+	#	categories = ["TL", "T", "TR", "L", "Stay", "R", "BL", "B", "BR"]
+	#
+	#	def update_plot():
+	#		global step_idx
+	#		ax.clear()
+	#		counts = migrations_per_step[step_idx]
+	#		values = [counts.get(cat, 0) for cat in categories]
+	#		values = [v / sum(values) for v in values]
+	#		ax.bar(categories, values)
+	#		ax.set_title(f"Migrations from (1,1) - Step {step_idx * tau_lbm} -> #{(step_idx+1) * tau_lbm}")
+	#		ax.set_ylabel("Particle Count")
+	#		plt.draw()
+	#
+	#	def on_key(event):
+	#		global step_idx
+	#		if event.key == "right" and step_idx < len(migrations_per_step) - 1:
+	#			step_idx += 1
+	#			update_plot()
+	#		elif event.key == "left" and step_idx > 0:
+	#			step_idx -= 1
+	#			update_plot()
+	#
+	#	fig.canvas.mpl_connect("key_press_event", on_key)
+	#	update_plot()
+	plt.show(block=True)
 
-		pos_nxt = ppos[(t+1) * step_interval]
-		ids_nxt = pids[(t+1) * step_interval]
-		cells_nxt = 3 * pos_nxt // sim_size
-
-		pos_nxt_nxt = ppos[(t+2) * step_interval]
-		ids_nxt_nxt = pids[(t+2) * step_interval]
-		cells_nxt_nxt = 3 * (pos_nxt_nxt) // sim_size
-
-		next_11 = {pid: cell for cell, pid in zip(cells_nxt, ids_nxt) if cell[0] == 1 and cell[1] == 1}
-		next_11_dt = {pid: cell for cell, pid in zip(cells_nxt_nxt, ids_nxt_nxt) if cell[0] == 1 and cell[1] == 1}
-
-		fs_t = {
-			(0, 0): 0, (1, 0): 0, (2, 0): 0,
-			(0, 1): 0, (1, 1): 0, (2, 1): 0,
-			(0, 2): 0, (1, 2): 0, (2, 2): 0
-		}
-
-		fs_t_dt = {
-			(0, 0): 0, (1, 0): 0, (2, 0): 0,
-			(0, 1): 0, (1, 1): 0, (2, 1): 0,
-			(0, 2): 0, (1, 2): 0, (2, 2): 0
-		}
-
-		rhos_t = {
-			(0, 0): 0, (1, 0): 0, (2, 0): 0,
-			(0, 1): 0, (1, 1): 0, (2, 1): 0,
-			(0, 2): 0, (1, 2): 0, (2, 2): 0
-		}
-
-		for pid, cell_arr in enumerate(cells):
-			cell = (cell_arr[0], cell_arr[1])
-			if pid in next_11:
-				fs_t[cell] += 1
-			rhos_t[cell] += 1
-
-		for pid, cell_arr in enumerate(cells_nxt):
-			cell = (cell_arr[0], cell_arr[1])
-			if pid in next_11_dt:
-				fs_t_dt[cell] += 1
-
-		for i, cell in enumerate(fs_t):
-			f_store[i, j] = fs_t[cell]
-#			f_store[i][j] = 1 / rhos_t[cell] * (fs_t[cell] + bgk_relax_n * (fs_t_dt[cell] - fs_t[cell]))
-		j += 1
-
-labels = ["TL", "T", "TR", "L", "Stay", "R", "BL", "B", "BR"]
-
-fig, axes = plt.subplots(3, 3, figsize=(8, 8))
-x_data = np.arange(len(pids) // step_interval - 2)
-for idx, ax in enumerate(axes.flat):
-	ax.plot(x_data, f_store[idx, :], 'bo-', label=f"Series {idx+1}")  # Blue line with circles
-	ax.set_title(labels[idx])
-	ax.set_xlabel("Time [dt]")
-	ax.set_ylabel("# particles")
-	ax.grid(True)
-
-plt.tight_layout()
-plt.show()
-
-#	migrations_per_step = track_migrations(ppos, pids, size=sim_size, step_interval=step_interval)
-#	plot_migrations(migrations_per_step, sim_size)
