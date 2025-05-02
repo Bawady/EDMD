@@ -45,6 +45,8 @@ if __name__ == "__main__":
 		for sim_dump in pathlib.Path(dump_dir).iterdir():
 			if sim_dump.is_dir():
 				dump_dirs_p.append(sim_dump)
+	else:
+		dump_dirs_p.append(pathlib.Path(dump_dir))
 
 	set_conversion_mode(ConversionMode.DIM)
 	Constants.prepare_constants()
@@ -76,42 +78,36 @@ if __name__ == "__main__":
 	dump_count = math.ceil(mag(QParse(cfg["setup"]["max_sim_time"]) / dump_interval)) + 1
 	dims = cfg["setup"]["dimensions"]
 
-	print("Loading particle positions")
+	if (dump_dir_p / "densities.npy").is_file():
+		print("Found cached densities, loading")
+		density_plots = np.load(dump_dir_p / "densities.npy")
+#		np.save(pathlib.Path(dump_dir) / "edmd_dens_mask.npy", density_plots[0])
+	else:
+		density_plots = np.zeros((dump_count, grid_size, grid_size))
+		cached = np.zeros((dump_count), dtype=np.bool)
 
-	ppos = np.zeros((dump_count, particle_cnt, dims))
-	for dump_dir_p in dump_dirs_p:
-		print(f"Loading dump {dump_dir_p}")
-		dump = np.fromfile(dump_dir_p / "particle_positions.bin", dtype=np.float64)
-		dump = ppos.reshape(-1, particle_cnt, dims)
-		ppos += dump
+		print("Loading particle positions")
+		for dump_dir_p in dump_dirs_p:
+			print(f"Loading dump {dump_dir_p}")
+			ppos = np.fromfile(dump_dir_p / "particle_positions.bin", dtype=np.float64)
+			ppos = ppos.reshape(-1, particle_cnt, dims)
 
-	ppos /= dump_count
+			for iteration in range(dump_count):
+				pos = ppos[iteration]
+				cells = np.floor_divide(pos, mag(non_dim(dx_lbm))).astype(np.int32)		# Flatten (x, y) to single indices
+				flat_ids = cells[:, 0] * grid_size + cells[:, 1]
 
-	density_plots = np.zeros((dump_count, grid_size, grid_size))
-	cached = np.zeros((dump_count), dtype=np.bool)
+				# Count occurrences of cells, i.e., discretize particle positions
+				counts = np.bincount(flat_ids, minlength=grid_size * grid_size)
 
-	max = None
+				# Reshape back to 2D grid
+				plot = density_plots[iteration]
+				plot[:, :] += counts.reshape((grid_size, grid_size))
+	#			cached[iteration] = True
 
-	def compute_plot(iteration: int):
-		global max
-		if cached[iteration]:
-			return
-		pos = ppos[iteration]
-		cells = np.floor_divide(pos, mag(non_dim(dx_lbm))).astype(np.int32)		# Flatten (x, y) to single indices
-		flat_ids = cells[:, 0] * grid_size + cells[:, 1]
+		density_plots[iteration] /= np.max(density_plots[0])
+		np.save(pathlib.Path(dump_dir) / "densities.npy", density_plots)
 
-		# Count occurrences efficiently
-		counts = np.bincount(flat_ids, minlength=grid_size * grid_size)
-
-		# Reshape back to 2D grid
-		plot = density_plots[iteration]
-		plot[:, :] = counts.reshape((grid_size, grid_size))
-		cached[iteration] = True
-		if max is None:
-			max = np.max(plot)
-		plot /= max
-
-compute_plot(0)
 
 fig, ax = plt.subplots()
 im = ax.imshow(density_plots[0], cmap='viridis')
@@ -130,7 +126,7 @@ def on_key(event):
 	else:
 		return  # Ignore other keys
 
-	compute_plot(on_key.idx)
+#	compute_plot(on_key.idx)
 	im.set_data(density_plots[on_key.idx])
 	ax.set_title(f"Density at {on_key.idx * dump_interval}")
 	fig.canvas.draw_idle()
