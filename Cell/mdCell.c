@@ -85,6 +85,7 @@ unsigned int colcounter = 0;    // Collision counter (will probably overflow in 
 double thermostatinterval = 0.01; // Time interval between applications of thermostat
 
 int main(int argc, char **argv) {
+	setvbuf(stdout, NULL, _IONBF, 0);
 	parse_arguments(argc, argv);
 	prepare_dump_file_paths();
 	fprintf(stdout, "Initializing\n");

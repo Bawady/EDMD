@@ -84,8 +84,10 @@ def compute_migration_kernel(pos_t, pos_t1, size):
 	migration_counts = np.zeros((size**2, 9))
 	density = np.zeros(size**2)
 
-	deltas = (pos_t1 - pos_t).astype(np.int16)
-	deltas = np.clip(deltas, -1, 1)  # ensure movement is max one cell in each direction
+	deltas = (pos_t1 - pos_t).astype(np.int16) % size
+	half_size = size // 2
+	deltas = (deltas + half_size) % size - half_size
+	deltas = np.clip(deltas, -1, 1)  # ensure movement is max one cell in each direction -> minor inaccuracy if this doesn't happen too often
 
 	for i in range(pos_t.shape[0]):
 		from_x, from_y = pos_t[i]
@@ -98,13 +100,11 @@ def compute_migration_kernel(pos_t, pos_t1, size):
 
 	density = density[:,np.newaxis]
 	weights = np.zeros(9)
-	cnt = 0
 	for i in range(migration_counts.shape[0]):
 		if density[i] > 0:
-			cnt += 1
 			weights += migration_counts[i]
 
-	weights /= cnt
+	weights /= np.sum(density)
 	return weights[[4, 5, 1, 3, 7, 2, 0, 6, 8]]
 
 
@@ -115,28 +115,29 @@ def compute_lattice_weigths(params: dict, sim_run_dir_p: pathlib.Path, out_dir_p
 	ppos = ppos.reshape(-1, params["particle_cnt"], params["dims"]) * params["pos_scale"]
 
 	print("Loading particle ids")
-	pids = np.fromfile(sim_run_dir_p / "pid.bin", dtype=np.uint16)
+	pids = np.fromfile(sim_run_dir_p / "pid.bin", dtype=np.uint32)
 	pids = pids.reshape(-1, params["particle_cnt"])
 
-	weights = np.zeros((len(pids) - 2, 9))
+	step_interval = params["step_interval"]
 
-	for t in range(len(pids) - 2):
-		pos = ppos[t]
-		ids = pids[t]
+	iterations = (len(pids) - 2) // step_interval
+	weights = np.zeros((iterations, 9))
+
+	for t in range(iterations):
+		pos = ppos[t*step_interval]
 		cells = np.trunc(pos)# // params["sim_size"]
 
-		pos_nxt = ppos[t+1]
-#		ids_nxt = pids[(t+1) * step_interval]
+		pos_nxt = ppos[(t+1)*step_interval]
 		cells_nxt = np.trunc(pos_nxt)# // params["sim_size"]
 		weights_current_step = compute_migration_kernel(cells, cells_nxt, int(params["sim_size"]))
 		weights[t] = weights_current_step
 
+	np.save(out_dir_p / f"{sim_run_dir_p.name}_weights.npy", weights)
 	return np.mean(weights, axis=0)
-#	np.save(out_dir_p / f"{sim_run_dir_p.name}_weights.npy", weights)
 
 
 if __name__ == "__main__":
-	default_dump_dir = "out/18_04_12_21_43"
+	default_dump_dir = ("out/neon_2d_units_lbm_cfg/18_04_12_36_31")
 	dump_dir = sys.argv[1] if len(sys.argv) > 1 else default_dump_dir
 	dump_dir_p = pathlib.Path(dump_dir)
 
@@ -173,6 +174,8 @@ if __name__ == "__main__":
 	max_iterations = math.ceil(mag(QParse(cfg["setup"]["max_sim_time"]) / QParse(cfg["setup"]["dump_interval"]))) + 2
 
 	dx_lbm = Q(10, "nm")
+	dt_lbm = Q(10, "ps")
+	step_interval = (dt_lbm / QParse(cfg["setup"]["dump_interval"])).to_base_units().magnitude
 	pos_scale = 1 / non_dim(dx_lbm)
 	sim_size = non_dim(QParse(cfg["setup"]["size"])) * pos_scale
 
@@ -184,6 +187,7 @@ if __name__ == "__main__":
 	params["pos_scale"] = pos_scale
 	params["sim_size"] = round(sim_size)
 	params["particle_cnt"] = particle_cnt
+	params["step_interval"] = int(step_interval)
 
 	weights = Parallel(n_jobs=len(sim_runs), backend="multiprocessing")(delayed(compute_lattice_weigths)(params, run, sim_out_p) for run in sim_runs)
 	avg_weights = np.zeros(9)
@@ -191,34 +195,4 @@ if __name__ == "__main__":
 		avg_weights += w
 	avg_weights /= len(sim_runs)
 	print(avg_weights)
-
-
-	#def plot_migrations(migrations_per_step, size):
-	#	global step_idx
-	#	fig, ax = plt.subplots()
-	#	categories = ["TL", "T", "TR", "L", "Stay", "R", "BL", "B", "BR"]
-	#
-	#	def update_plot():
-	#		global step_idx
-	#		ax.clear()
-	#		counts = migrations_per_step[step_idx]
-	#		values = [counts.get(cat, 0) for cat in categories]
-	#		values = [v / sum(values) for v in values]
-	#		ax.bar(categories, values)
-	#		ax.set_title(f"Migrations from (1,1) - Step {step_idx * tau_lbm} -> #{(step_idx+1) * tau_lbm}")
-	#		ax.set_ylabel("Particle Count")
-	#		plt.draw()
-	#
-	#	def on_key(event):
-	#		global step_idx
-	#		if event.key == "right" and step_idx < len(migrations_per_step) - 1:
-	#			step_idx += 1
-	#			update_plot()
-	#		elif event.key == "left" and step_idx > 0:
-	#			step_idx -= 1
-	#			update_plot()
-	#
-	#	fig.canvas.mpl_connect("key_press_event", on_key)
-	#	update_plot()
-	# plt.show(block=True)
 
