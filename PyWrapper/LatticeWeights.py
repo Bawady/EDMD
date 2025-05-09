@@ -137,9 +137,49 @@ def compute_lattice_weigths(params: dict, sim_run_dir_p: pathlib.Path, out_dir_p
 
 
 if __name__ == "__main__":
-	default_dump_dir = ("out/neon_2d_units_lbm_cfg/18_04_12_36_31")
+	default_dump_dir = ("out/18_04_12_21_43")
 	dump_dir = sys.argv[1] if len(sys.argv) > 1 else default_dump_dir
 	dump_dir_p = pathlib.Path(dump_dir)
+
+	# This is supposed to be quick hack on not the final state of how drawing is triggered
+	if len(sys.argv) > 2:
+		ws = None
+		sims = 0
+		for x in (dump_dir_p / "weights").iterdir():
+			if x.is_file():
+				sims += 1
+				if ws is None:
+					ws = np.load(x)
+				else:
+					ws += np.load(x)
+		ws /= sims
+		print(ws.shape)
+
+		fig, ax = plt.subplots()
+		bars = ax.bar(range(9), ws[0])
+		ax.set_title(f"Weights at 0")
+		ax.set_ylim(ws.min(), ws.max())  # Optional: fix y-axis range
+
+		def on_key(event):
+			if not hasattr(on_key, "idx"):
+				on_key.idx = 0
+
+			if event.key == "right":
+				on_key.idx = (on_key.idx + 1) % ws.shape[0]
+			elif event.key == "left":
+				on_key.idx = (on_key.idx - 1) % ws.shape[0]
+			else:
+				return
+
+			for bar, height in zip(bars, ws[on_key.idx]):
+				bar.set_height(height)
+			ax.set_title(f"Weights at {on_key.idx}")
+			fig.canvas.draw_idle()
+
+		fig.canvas.mpl_connect('key_press_event', on_key)
+		plt.show()
+		exit(0)
+
 
 	set_conversion_mode(ConversionMode.DIM)
 	Constants.prepare_constants()
@@ -189,7 +229,7 @@ if __name__ == "__main__":
 	params["particle_cnt"] = particle_cnt
 	params["step_interval"] = int(step_interval)
 
-	weights = Parallel(n_jobs=len(sim_runs), backend="multiprocessing")(delayed(compute_lattice_weigths)(params, run, sim_out_p) for run in sim_runs)
+	weights = Parallel(n_jobs=len(sim_runs), backend="multiprocessing")(delayed(compute_lattice_weigths)(params, run, 	sim_out_p) for run in sim_runs)
 	avg_weights = np.zeros(9)
 	for w in weights:
 		avg_weights += w
