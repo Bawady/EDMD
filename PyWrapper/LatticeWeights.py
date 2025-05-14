@@ -7,10 +7,11 @@ Usage:
   LatticeWeights.py --version
 
 Options:
-  -h --help    Show this screen.
-  --version    Show version.
-  --recompute  Recompute all weights.
-  --plot       Plot the weights as bar graph.
+  -h --help            Show this screen.
+  --version            Show version.
+  --recompute          Recompute all weights.
+  --plot               Plot the weights as bar graph.
+  --threads=<threads>  Amount of threads used in parallel
 """
 from docopt import docopt
 
@@ -63,9 +64,11 @@ def compute_migration_kernel(pos_t, pos_t1, size):
 
 
 def compute_lattice_weigths(params: dict, sim_run_dir_p: pathlib.Path, out_dir_p):
+	print(f"Loading position for {sim_run_dir_p.name}")
 	ppos = np.fromfile(sim_run_dir_p / "particle_positions.bin", dtype=np.float64)
 	ppos = ppos.reshape(-1, params["particle_cnt"], params["dims"]) * params["pos_scale"]
 
+	print(f"Loading IDs for {sim_run_dir_p.name}")
 	pids = np.fromfile(sim_run_dir_p / "pid.bin", dtype=np.uint32)
 	pids = pids.reshape(-1, params["particle_cnt"])
 
@@ -203,8 +206,12 @@ if __name__ == "__main__":
 		params = compute_discretization_parameters(cfg, args["<dx>"], args["<dt>"])
 
 		weight_dump_p.mkdir(parents=True, exist_ok=True)
-		print("Computing lattice weights")
-		ws = Parallel(n_jobs=len(sim_runs), backend="multiprocessing")(delayed(compute_lattice_weigths)(params, run, weight_dump_p) for run in todo_sim_runs)
+		threads = len(sim_runs) if args["--threads"] is None else int(args["--threads"])
+		ws = []
+		while len(ws) != len(todo_sim_runs):
+			max_threads = min(threads, len(todo_sim_runs)-len(ws))
+			print(f"Spawning {max_threads} threads")
+			ws.append(Parallel(n_jobs=max_threads, backend="multiprocessing")(delayed(compute_lattice_weigths)(params, run, weight_dump_p) for run in todo_sim_runs[len(ws):len(ws)+max_threads]))
 		for i, sim_run in enumerate(todo_sim_runs):
 			weights[sim_run] = ws[i]
 
