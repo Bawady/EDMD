@@ -17,26 +17,8 @@ from Constants import Constants
 ENSEMBLE = True
 
 
-def read_csv(filename, delimiter=';', size=100):
-	with open(filename, 'r') as file:
-		reader = csv.reader(file, delimiter=delimiter)
-		data = list(reader)
-
-	assert len(data) % 3 == 0, "CSV file does not contain triplets of rows."
-
-	steps = len(data) // 3
-	simulation_data = []
-
-	for i in range(steps):
-		x_coords = list(map(float, data[3 * i]))
-		y_coords = list(map(float, data[3 * i + 1]))
-		simulation_data.append((x_coords, y_coords))
-
-	return simulation_data
-
-
 if __name__ == "__main__":
-	default_dump_dir = "/data/out/neon_2d_units_lbm_cfg/init_injected_intermediate"
+	default_dump_dir = "/data/out/2ps_step"
 	dump_dir = sys.argv[1] if len(sys.argv) > 1 else default_dump_dir
 	dump_dir_p = pathlib.Path(dump_dir)
 
@@ -109,11 +91,14 @@ if __name__ == "__main__":
 		np.save(pathlib.Path(dump_dir) / "densities.npy", density_plots)
 
 
-fig, ax = plt.subplots()
-im = ax.imshow(density_plots[0], cmap='viridis')
-ax.set_title(f"Density at {dump_interval * 0}")
-ax.axes.get_xaxis().set_ticks([])
-ax.axes.get_yaxis().set_ticks([])
+fig, axs = plt.subplots(1, 2)
+im = axs[0].imshow(density_plots[0], cmap='viridis')
+axs[0].set_title(f"Density at {dump_interval * 0}")
+axs[0].axes.get_xaxis().set_ticks([])
+axs[0].axes.get_yaxis().set_ticks([])
+center = density_plots[0].shape[0] // 2
+line, = axs[1].plot(density_plots[0][center, :])
+axs[1].set_title(f"Center Line Slice {dump_interval * 0}")
 
 def on_key(event):
 	if not hasattr(on_key, "idx"):
@@ -126,9 +111,11 @@ def on_key(event):
 	else:
 		return  # Ignore other keys
 
-#	compute_plot(on_key.idx)
 	im.set_data(density_plots[on_key.idx])
-	ax.set_title(f"Density at {on_key.idx * dump_interval}")
+	line.set_data(range(density_plots[on_key.idx].shape[1]),
+	              density_plots[on_key.idx][center, :])
+	axs[0].set_title(f"Density at {on_key.idx * dump_interval}")
+	axs[1].set_title(f"Center Line Slice at {on_key.idx * dump_interval}")
 	fig.canvas.draw_idle()
 
 fig.canvas.mpl_connect('key_press_event', on_key)
