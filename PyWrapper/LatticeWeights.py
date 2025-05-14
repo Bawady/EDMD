@@ -33,42 +33,49 @@ step_idx : int = 0
 
 
 def compute_migration_kernel(pos_t, pos_t1, size):
-	# D2Q9 -> 9 velocities
-	migration_counts = np.zeros((size**2, 9))
-	density = np.zeros(size**2)
+    # D2Q9 -> 9 velocities
+    migration_counts = np.zeros((size**2, 9), dtype=np.float64)
+    density = np.zeros(size**2, dtype=np.float64)
 
-	deltas = (pos_t1 - pos_t).astype(np.int16) % size
-	half_size = size // 2
-	deltas = (deltas + half_size) % size - half_size
-	deltas = np.clip(deltas, -1, 1)  # ensure movement is max one cell in each direction -> minor inaccuracy if this doesn't happen too often
+    # Calculate deltas with periodic boundary correction
+    deltas = ((pos_t1 - pos_t).astype(np.int16) + size) % size
+    half_size = size // 2
+    deltas = (deltas + half_size) % size - half_size
+    deltas = np.clip(deltas, -1, 1)  # max movement: 1 cell in each direction
 
-	for i in range(pos_t.shape[0]):
-		from_x, from_y = pos_t[i]
-		dx, dy = deltas[i]
-		to_x, to_y = (from_x + dx) % size, (from_y + dy) % size
-		cell_idx = int(to_x + to_y * size)
-		# In D2Q9 the neighborhood is a 3x3 grid
-		pop_idx = dx+1 + (dy+1) * 3
-		migration_counts[cell_idx][pop_idx] += 1
-		density[cell_idx] += 1
+    # Calculate destination positions
+    pos = pos_t.astype(np.int32)
+    dx, dy = deltas[:, 0], deltas[:, 1]
+    to_x = (pos[:, 0] + dx) % size
+    to_y = (pos[:, 1] + dy) % size
 
-	density = density[:,np.newaxis]
-	weights = np.zeros(9)
-	for i in range(migration_counts.shape[0]):
-		if density[i] > 0:
-			weights += migration_counts[i]
+    # Compute flattened destination cell indices
+    cell_idx = to_x + to_y * size
 
-	weights /= np.sum(density)
-	# Reorder to rest weight, the "straight" weights and the diagonal weights
-	return weights[[4, 5, 1, 3, 7, 2, 0, 6, 8]]
+    # Compute D2Q9 population index: dx + 1 + (dy + 1) * 3
+    pop_idx = (dx + 1) + (dy + 1) * 3
+
+    # Use NumPy's advanced indexing and bincount to accumulate migration counts
+    flat_indices = cell_idx * 9 + pop_idx
+    np.add.at(migration_counts.ravel(), flat_indices, 1)
+    np.add.at(density, cell_idx, 1)
+
+    # Avoid divide-by-zero
+    total_density = np.sum(density)
+    if total_density == 0:
+        return np.zeros(9)
+
+    # Aggregate total weights per direction
+    weights = migration_counts.sum(axis=0) / total_density
+
+    # Reorder D2Q9 directions as required
+    return weights[[4, 5, 1, 3, 7, 2, 0, 6, 8]]
 
 
 def compute_lattice_weigths(params: dict, sim_run_dir_p: pathlib.Path, out_dir_p):
-	print(f"Loading position for {sim_run_dir_p.name}")
 	ppos = np.fromfile(sim_run_dir_p / "particle_positions.bin", dtype=np.float64)
 	ppos = ppos.reshape(-1, params["particle_cnt"], params["dims"]) * params["pos_scale"]
 
-	print(f"Loading IDs for {sim_run_dir_p.name}")
 	pids = np.fromfile(sim_run_dir_p / "pid.bin", dtype=np.uint32)
 	pids = pids.reshape(-1, params["particle_cnt"])
 
@@ -83,8 +90,7 @@ def compute_lattice_weigths(params: dict, sim_run_dir_p: pathlib.Path, out_dir_p
 
 		pos_nxt = ppos[(t+1)*step_interval]
 		cells_nxt = np.trunc(pos_nxt)# // params["sim_size"]
-		weights_current_step = compute_migration_kernel(cells, cells_nxt, int(params["sim_size"]))
-		weights[t] = weights_current_step
+		weights[t] = compute_migration_kernel(cells, cells_nxt, int(params["sim_size"]))
 
 	np.save(out_dir_p / f"{sim_run_dir_p.name}.npy", weights)
 	return np.mean(weights, axis=0)
@@ -211,7 +217,7 @@ if __name__ == "__main__":
 		while len(ws) != len(todo_sim_runs):
 			max_threads = min(threads, len(todo_sim_runs)-len(ws))
 			print(f"Spawning {max_threads} threads")
-			ws.append(Parallel(n_jobs=max_threads, backend="multiprocessing")(delayed(compute_lattice_weigths)(params, run, weight_dump_p) for run in todo_sim_runs[len(ws):len(ws)+max_threads]))
+			ws += (Parallel(n_jobs=max_threads, backend="multiprocessing")(delayed(compute_lattice_weigths)(params, run, weight_dump_p) for run in todo_sim_runs[len(ws):len(ws)+max_threads]))
 		for i, sim_run in enumerate(todo_sim_runs):
 			weights[sim_run] = ws[i]
 
