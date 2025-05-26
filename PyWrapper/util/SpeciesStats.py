@@ -5,7 +5,7 @@ import scipy.stats
 from dataclasses import dataclass, field
 from typing import List, Tuple, Callable
 
-sys.path.append("..")
+sys.path.append("../..")
 from UnitSystem import *
 from Constants import Constants
 

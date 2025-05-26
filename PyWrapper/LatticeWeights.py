@@ -18,15 +18,13 @@ from docopt import docopt
 import sys
 import pathlib
 import yaml
-import math
-import numpy as np
 import matplotlib.pyplot as plt
 
 from joblib import Parallel, delayed
 
 sys.path.append("..")
-from UnitSystem import *
-from Constants import Constants
+from util.UnitSystem import *
+from util.Constants import Constants
 
 
 step_idx : int = 0

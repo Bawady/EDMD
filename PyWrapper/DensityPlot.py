@@ -2,7 +2,6 @@
 
 import csv
 
-import numpy as np
 import matplotlib.pyplot as plt
 import sys
 import pathlib
@@ -10,8 +9,8 @@ import yaml
 import math
 
 sys.path.append("..")
-from UnitSystem import *
-from Constants import Constants
+from util.UnitSystem import *
+from util.Constants import Constants
 
 
 ENSEMBLE = True

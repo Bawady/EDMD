@@ -2,7 +2,6 @@
 
 import sys
 import os
-import math
 import subprocess
 import pathlib
 import yaml
@@ -10,9 +9,8 @@ import yaml
 from datetime import datetime
 from joblib import Parallel, delayed
 
-from Simulator import MicroSimulator
-from UnitSystem import *
-from Constants import *
+from util.Simulator import MicroSimulator
+from util.Constants import *
 
 
 log_file = None

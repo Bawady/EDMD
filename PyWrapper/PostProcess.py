@@ -1,23 +1,19 @@
 #!/usr/bin/env python
 
 import matplotlib.pyplot as plt
-import numpy as np
-import sys
 import re
 import yaml
 import pathlib
-import pint
 import scipy.stats
 import sys
 import math
-import mmap
 
-from fitting_util import *
+from util.fitting_util import *
 
 sys.path.append("..")
-from UnitSystem import *
-from Constants import Constants
-from SpeciesStats import SpeciesStats
+from util.UnitSystem import *
+from util.Constants import Constants
+from util.SpeciesStats import SpeciesStats
 
 
 # global config vars
